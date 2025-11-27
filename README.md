@@ -38,6 +38,35 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 `DATABASE_URL` stays in `.env`, which is git-ignored by default. See `lib/prisma.ts` for the shared Prisma client used throughout the app.
 
+## Authentication Environment
+
+Create a `.env` file (or extend your existing one) with the values NextAuth expects:
+
+```
+DATABASE_URL="postgresql://postgres:password@localhost:5432/demonsandducks?schema=public"
+AUTH_SECRET="generate-a-long-random-string"
+```
+
+- `AUTH_SECRET` secures sessions and should be at least 32 random bytes. You can generate one with `openssl rand -base64 32` or `npx auth secret`.
+- When deploying, also set `NEXTAUTH_URL` (e.g., `https://your-domain.com`) so callback URLs resolve correctly.
+
+After updating env vars, restart `npm run dev` to ensure the new configuration is picked up.
+
+## Credentials Auth Flow
+
+1. Apply the latest schema changes with Prisma once your database is reachable:
+
+   ```bash
+   npx prisma migrate dev --name add-auth
+   ```
+
+2. Start the dev server (`npm run dev`) and visit:
+   - `/signup` to create the first user (username + password, optional name/email).
+   - `/signin` to log into an existing account.
+
+   These forms talk to `/api/auth/register` and the built-in NextAuth route under `/api/auth/[...nextauth]`.
+3. The landing page (`/`) reflects the current session—showing the username plus a sign-out button when authenticated, or links to sign in/up when anonymous.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

@@ -5,27 +5,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-type Player = {
-  id: number;
-  userId: number;
-  user: {
-    id: number;
-    username: string;
-    name: string | null;
-  };
-};
+import type { GameState } from "@/actions/game-actions";
 
 type GameWaitingRoomProps = {
   gameCode: string;
-  players: Player[];
+  players: GameState["players"];
   currentUserId: number;
+  isConnected?: boolean;
+  error?: string | null;
 };
 
 export function GameWaitingRoom({
   gameCode,
   players,
   currentUserId,
+  isConnected,
+  error,
 }: GameWaitingRoomProps) {
   const [copied, setCopied] = useState(false);
 
@@ -64,7 +59,23 @@ export function GameWaitingRoom({
 
         {/* Players List */}
         <div className="space-y-2">
-          <Label>Players ({players.length}/2)</Label>
+          <div className="flex items-center justify-between">
+            <Label>Players ({players.length}/2)</Label>
+            {isConnected !== undefined && (
+              <span
+                className={`text-xs ${
+                  isConnected ? "text-green-600" : "text-yellow-600"
+                }`}
+              >
+                {isConnected ? "● Connected" : "● Connecting..."}
+              </span>
+            )}
+          </div>
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">
+              {error}
+            </p>
+          )}
           <ul className="space-y-2">
             {players.map((player) => (
               <li

@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
-import { GameWaitingRoom } from "@/components/game-waiting-room";
+import { GameClient } from "./game-client";
 
 type GamePageProps = {
   params: Promise<{ gameId: string }>;
@@ -62,9 +62,19 @@ export default async function GamePage({ params }: GamePageProps) {
 
       {/* Main content */}
       <main className="flex flex-1 flex-col items-center justify-center gap-6 bg-white px-6 py-16">
-        <GameWaitingRoom
-          gameCode={game.gameCode}
-          players={game.players}
+        <GameClient
+          gameId={gameIdNum}
+          initialGameState={{
+            gameCode: game.gameCode,
+            players: game.players.map((p) => ({
+              id: p.id,
+              userId: p.userId,
+              user: {
+                id: p.user.id,
+                username: p.user.username,
+              },
+            })),
+          }}
           currentUserId={userId}
         />
       </main>

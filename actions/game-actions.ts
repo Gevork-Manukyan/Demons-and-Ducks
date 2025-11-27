@@ -68,6 +68,79 @@ export async function createGame(): Promise<ActionResult<CreateGameData>> {
   }
 }
 
+export type GameState = {
+  gameCode: string;
+  players: Array<{
+    id: number;
+    userId: number;
+    user: {
+      id: number;
+      username: string;
+    };
+  }>;
+};
+
+export async function getGameState(
+  gameId: number
+): Promise<ActionResult<GameState>> {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return actionError(
+        "You must be logged in to view game state",
+        ERROR_CODES.AUTH_REQUIRED
+      );
+    }
+
+    const userId = parseInt(session.user.id);
+
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        players: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!game) {
+      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    const player = game.players.find((p) => p.userId === userId);
+
+    if (!player) {
+      return actionError(
+        "You are not a player in this game",
+        ERROR_CODES.AUTH_REQUIRED
+      );
+    }
+
+    return actionSuccess({
+      gameCode: game.gameCode,
+      players: game.players.map((p) => ({
+        id: p.id,
+        userId: p.userId,
+        user: {
+          id: p.user.id,
+          username: p.user.username,
+        },
+      })),
+    });
+  } catch (error) {
+    console.error("[getGameState] unexpected error", error);
+    return actionError("Could not fetch game state", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
 export async function joinGame(
   prevState: unknown,
   formData: FormData

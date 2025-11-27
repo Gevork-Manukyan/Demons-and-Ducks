@@ -112,26 +112,6 @@ export default function SignUpPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="name">Display name (optional)</Label>
-              <Input
-                id="name"
-                name="name"
-                maxLength={100}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email (optional)</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                maxLength={100}
-              />
-            </div>
-
             {getErrorMessage(state) && (
               <Alert variant="destructive">
                 <AlertDescription>{getErrorMessage(state)}</AlertDescription>

@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { signupSchema } from "@/lib/zod-schemas";
-import { normalizeUsername, normalizeEmail } from "@/lib/utils";
+import { normalizeUsername } from "@/lib/utils";
 import { hash } from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import {
@@ -34,9 +34,8 @@ export async function SignUp(
       );
     }
 
-    const { username, password, name, email } = validatedFormData.data;
+    const { username, password } = validatedFormData.data;
     const normalizedUsername = normalizeUsername(username);
-    const normalizedEmail = email ? normalizeEmail(email) : null;
 
     const passwordHash = await hash(password, 10);
 
@@ -44,8 +43,6 @@ export async function SignUp(
       data: {
         username: normalizedUsername,
         passwordHash,
-        name: name?.trim() || null,
-        email: normalizedEmail,
       },
     });
 
@@ -59,7 +56,7 @@ export async function SignUp(
       error.code === "P2002"
     ) {
       return actionError(
-        "Username or email already in use",
+        "Username already in use",
         ERROR_CODES.ALREADY_EXISTS
       );
     }

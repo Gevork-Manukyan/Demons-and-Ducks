@@ -35,7 +35,6 @@ export default async function GamePage({ params }: GamePageProps) {
             select: {
               id: true,
               username: true,
-              name: true,
             },
           },
         },

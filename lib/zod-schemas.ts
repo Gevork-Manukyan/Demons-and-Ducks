@@ -11,10 +11,7 @@ export const authSchema = z.object({
     .max(100, { message: "Password must be less than 100 characters" }),
 });
 
-export const signupSchema = authSchema.extend({
-  name: z.string().max(100, { message: "Name must be less than 100 characters" }).optional(),
-  email: z.string().email({ message: "Invalid email address" }).max(100, { message: "Email must be less than 100 characters" }).optional(),
-});
+export const signupSchema = authSchema;
 
 export const joinGameSchema = z.object({
   gameCode: z.string().min(1, { message: "Game code is required" }),

@@ -1,15 +1,30 @@
 import { useState, useEffect, useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { createGame, joinGame } from "@/actions/game-actions";
-import { isActionError, isActionSuccess } from "@/lib/errors";
-import { getErrorMessage } from "@/lib/error-utils";
+import { isActionError, isActionSuccess, type ActionResult } from "@/lib/errors";
+
+type JoinGameData = {
+  gameId: number;
+};
 
 export function useGameActions() {
   const router = useRouter();
   const [gameCode, setGameCode] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [joinState, joinFormAction] = useActionState(joinGame, null);
+  const [joinState, joinFormAction] = useActionState<
+    ActionResult<JoinGameData> | null,
+    FormData
+  >(
+    ((
+      prevState: ActionResult<JoinGameData> | null,
+      formData: FormData
+    ) => joinGame(prevState, formData)) as unknown as (
+      prevState: ActionResult<JoinGameData> | null,
+      formData: FormData
+    ) => Promise<ActionResult<JoinGameData>>,
+    null
+  );
 
   const handleCreateGame = async () => {
     setIsCreating(true);

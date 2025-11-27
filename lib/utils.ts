@@ -1,14 +1,14 @@
-/**
- * Normalizes a username by trimming whitespace and converting to lowercase
- */
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
 export function normalizeUsername(username: string): string {
-  return username.trim().toLowerCase();
+  return username.toLowerCase().trim()
 }
 
-/**
- * Normalizes an email by trimming whitespace and converting to lowercase
- */
 export function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
+  return email.toLowerCase().trim()
 }
-

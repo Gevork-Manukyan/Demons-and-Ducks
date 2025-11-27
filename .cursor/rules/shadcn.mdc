@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+before creating a new component check https://ui.shadcn.com/docs/components to see if a component exists and use that. If there isn't a suitable component then make a new one. Don't try to force one of the shadcn components to solve a problem it is not meant to. 

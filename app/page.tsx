@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 
 import { SignOutButton } from "@/components/sign-out-button";
 import { authOptions } from "@/lib/auth";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export default async function Home() {
   const session = await getServerSession(authOptions);
@@ -29,37 +31,33 @@ export default async function Home() {
         </code>
       </div>
 
-      <div className="mt-4 flex flex-col items-center gap-3 rounded-2xl border border-zinc-200 px-6 py-5 text-sm text-zinc-600 shadow-sm">
-        {session?.user ? (
-          <>
-            <p>
-              Signed in as{" "}
-              <span className="font-semibold text-zinc-900">
-                {username ?? email ?? "unknown user"}
-              </span>
-            </p>
-            <SignOutButton />
-          </>
-        ) : (
-          <>
-            <p className="text-zinc-600">You are not signed in yet.</p>
-            <div className="flex gap-3">
-              <Link
-                href="/signin"
-                className="rounded-md bg-zinc-900 px-4 py-2 text-white transition hover:bg-zinc-800"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/signup"
-                className="rounded-md border border-zinc-300 px-4 py-2 text-zinc-900 transition hover:border-zinc-900"
-              >
-                Create account
-              </Link>
-            </div>
-          </>
-        )}
-      </div>
+      <Card className="mt-4">
+        <CardContent className="flex flex-col items-center gap-3 pt-6 text-sm text-zinc-600">
+          {session?.user ? (
+            <>
+              <p>
+                Signed in as{" "}
+                <span className="font-semibold text-zinc-900">
+                  {username ?? email ?? "unknown user"}
+                </span>
+              </p>
+              <SignOutButton />
+            </>
+          ) : (
+            <>
+              <p className="text-zinc-600">You are not signed in yet.</p>
+              <div className="flex gap-3">
+                <Button asChild>
+                  <Link href="/signin">Sign in</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/signup">Create account</Link>
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </main>
   );
 }

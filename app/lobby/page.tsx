@@ -12,15 +12,11 @@ import { getErrorMessage } from "@/lib/error-utils";
 export default function LobbyPage() {
   const {
     gameCode,
-    createdGameCode,
-    createdGameId,
     createError,
     isCreating,
     joinState,
     setGameCode,
     handleCreateGame,
-    handleCopyCode,
-    handleGoToGame,
     joinFormAction,
   } = useGameActions();
 
@@ -51,29 +47,6 @@ export default function LobbyPage() {
                 <Alert variant="destructive">
                   <AlertDescription>{createError}</AlertDescription>
                 </Alert>
-              )}
-
-              {createdGameCode && createdGameId && (
-                <div className="space-y-2">
-                  <Label>Game code</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={createdGameCode}
-                      readOnly
-                      className="flex-1 font-mono"
-                    />
-                    <Button onClick={handleCopyCode} variant="outline">
-                      Copy
-                    </Button>
-                  </div>
-                  <Button
-                    onClick={handleGoToGame}
-                    className="w-full"
-                    size="lg"
-                  >
-                    Go to Game
-                  </Button>
-                </div>
               )}
             </div>
 

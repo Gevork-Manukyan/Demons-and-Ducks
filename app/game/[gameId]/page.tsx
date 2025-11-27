@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GameWaitingRoom } from "@/components/game-waiting-room";
 
 type GamePageProps = {
   params: Promise<{ gameId: string }>;
@@ -63,42 +63,11 @@ export default async function GamePage({ params }: GamePageProps) {
 
       {/* Main content */}
       <main className="flex flex-1 flex-col items-center justify-center gap-6 bg-white px-6 py-16">
-        <Card className="w-full max-w-2xl">
-          <CardHeader>
-            <CardTitle>Game Room</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <p className="text-sm text-zinc-600">Game Code: {game.gameCode}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium mb-2">Players:</p>
-              <ul className="space-y-1">
-                {game.players.map((p) => (
-                  <li key={p.id} className="text-sm text-zinc-700">
-                    {p.user.username}
-                    {p.userId === userId && " (You)"}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <p className="text-sm text-zinc-600">
-                Points to Win: {game.pointsToWin}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-zinc-600">
-                Your Current Points: {player.currentPoints}
-              </p>
-            </div>
-            <div className="pt-4">
-              <p className="text-sm text-zinc-500 italic">
-                Game UI will be implemented here
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <GameWaitingRoom
+          gameCode={game.gameCode}
+          players={game.players}
+          currentUserId={userId}
+        />
       </main>
     </div>
   );

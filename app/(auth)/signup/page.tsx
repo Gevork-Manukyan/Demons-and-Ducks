@@ -3,21 +3,38 @@
 import Link from "next/link";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useFormState, useFormStatus } from "react-dom";
-import { useEffect } from "react";
+import { useActionState, useEffect } from "react";
+import { useFormStatus } from "react-dom";
 import { SignUp } from "@/actions/auth-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { isActionSuccess } from "@/lib/errors";
+import { isActionSuccess, type ActionResult } from "@/lib/errors";
 import { getErrorMessage } from "@/lib/error-utils";
+
+type SignUpData = {
+  username: string;
+  password: string;
+};
 
 export default function SignUpPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
-  const [state, formAction] = useFormState(SignUp, null);
+  const { status } = useSession();
+  const [state, formAction] = useActionState<
+    ActionResult<SignUpData> | null,
+    FormData
+  >(
+    ((
+      prevState: ActionResult<SignUpData> | null,
+      formData: FormData
+    ) => SignUp(prevState, formData)) as unknown as (
+      prevState: ActionResult<SignUpData> | null,
+      formData: FormData
+    ) => Promise<ActionResult<SignUpData>>,
+    null
+  );
 
   // Redirect to lobby if already logged in
   useEffect(() => {
@@ -27,7 +44,7 @@ export default function SignUpPage() {
   }, [status, router]);
 
   useEffect(() => {
-    if (isActionSuccess(state)) {
+    if (state && isActionSuccess(state)) {
       const { username, password } = state.data;
       signIn("credentials", {
         username,

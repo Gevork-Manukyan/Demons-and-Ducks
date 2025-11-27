@@ -11,7 +11,7 @@ export class CustomError extends Error {
 
 /**
  * Use this for handling invalid input from the client.
- * @example throw new ValidationError("Invalid sage name", "sage");
+ * @example throw new ValidationError("Invalid input", "fieldName");
  */
 export class ValidationError extends CustomError {
     field?: string;
@@ -41,8 +41,8 @@ export class AuthorizationError extends CustomError {
 }
 
 /**
- * When a requested resource, such as a game or player, doesn’t exist.
- * @example throw new NotFoundError("Game", gameId);
+ * When a requested resource doesn't exist.
+ * @example throw new NotFoundError("Resource", "Resource not found");
  */
 export class NotFoundError extends CustomError {
     resource;
@@ -54,7 +54,7 @@ export class NotFoundError extends CustomError {
 }
 
 /**
- * When an operation cannot be completed due to a conflict, such as trying to select an already chosen sage.
+ * When an operation cannot be completed due to a conflict.
  */
 export class ConflictError extends CustomError {
     constructor(message = "Conflict detected") {

@@ -1,17 +1,50 @@
-import { auth } from "./lib/server/auth";
+// src/middleware.ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-export default auth;
+export async function middleware(request: NextRequest) {
+  const token = await getToken({
+    req: request,
+    secret: process.env.AUTH_SECRET,
+  });
 
-// Configure which paths the middleware should run on
+  const isLoggedIn = Boolean(token);
+  const pathname = request.nextUrl.pathname;
+  const isTryingToAccessProtectedRoute = pathname.startsWith("/app");
+
+  // User logged in and trying to access protected route
+  if (isTryingToAccessProtectedRoute && isLoggedIn) {
+    return NextResponse.next();
+  }
+
+  // User NOT logged in and trying to access protected route
+  if (isTryingToAccessProtectedRoute && !isLoggedIn) {
+    const url = new URL("/login", request.url);
+    return NextResponse.redirect(url);
+  }
+
+  // User logged in and trying to access public route
+  if (!isTryingToAccessProtectedRoute && isLoggedIn) {
+    if (pathname.includes("/login") || pathname.includes("/register")) {
+      const url = new URL("/app/lobby", request.url);
+      return NextResponse.redirect(url);
+    }
+
+    return NextResponse.next();
+  }
+
+  // User NOT logged in and trying to access public route
+  if (!isTryingToAccessProtectedRoute && !isLoggedIn) {
+    return NextResponse.next();
+  }
+
+  // Default: Deny access
+  return NextResponse.redirect(new URL("/login", request.url));
+}
+
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     */
-    '/((?!_next/static|_next/image|favicon.ico|public).*)',
+    "/((?!_next/static|_next/image|favicon.ico|public).*)",
   ],
-}
+};

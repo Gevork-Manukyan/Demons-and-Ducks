@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { ValidationError, NotFoundError, InvalidSpaceError, HostOnlyActionError, GameConflictError, IncorrectPasswordError, GameNotFoundError, GameFullError, GameAlreadyStartedError } from "src/custom-errors";
+import { ValidationError, NotFoundError, ConflictError, CustomError } from "../custom-errors";
 
 export interface ApiError extends Error {
     status?: number;
@@ -31,64 +31,9 @@ export function errorHandler(
         });
     }
 
-    if (err instanceof InvalidSpaceError) {
+    if (err instanceof ConflictError) {
         return res.status(err.status).json({
-            error: "Invalid Space Error",
-            message: err.message,
-            code: err.code,
-        });
-    }
-
-    if (err instanceof HostOnlyActionError) {
-        return res.status(err.status).json({
-            error: "Host Only Action",
-            message: err.message,
-            code: err.code,
-        });
-    }
-
-    if (err instanceof GameConflictError) {
-        return res.status(err.status).json({
-            error: "Game Conflict",
-            message: err.message,
-            code: err.code,
-        });
-    }
-
-    if (err instanceof IncorrectPasswordError) {
-        console.log("IncorrectPasswordError details:", {
-            status: err.status,
-            message: err.message,
-            code: err.code,
-            field: err.field,
-        });
-        return res.status(err.status).json({
-            error: "Incorrect Password",
-            message: err.message,
-            code: err.code,
-            field: err.field,
-        });
-    }
-
-    if (err instanceof GameNotFoundError) {
-        return res.status(err.status || 404).json({
-            error: "Game Not Found",
-            message: err.message,
-            code: err.code,
-        });
-    }
-
-    if (err instanceof GameFullError) {
-        return res.status(err.status).json({
-            error: "Game Full",
-            message: err.message,
-            code: err.code,
-        });
-    }
-
-    if (err instanceof GameAlreadyStartedError) {
-        return res.status(err.status).json({
-            error: "Game Already Started",
+            error: "Conflict",
             message: err.message,
             code: err.code,
         });

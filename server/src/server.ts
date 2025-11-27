@@ -3,15 +3,11 @@ import { Server } from "socket.io";
 import express from "express";
 import cors from "cors";
 import usersRouter from "./routes/users";
-import { GameEventEmitter, GameStateManager } from "./services";
-import { RegisterUserSocketEvent, RegisterUserData, PlayerRejoinedEvent } from "@shared-types";
-import { UserSocketManager } from "./services/UserSocketManager";
-import createGamesRouter from "./routes/games";
+import { UserSocketManager } from "./services";
+import { RegisterUserSocketEvent, RegisterUserData } from "@shared-types";
 import { errorHandler } from "./middleware/errorHandler";
 import { env } from "./lib/env";
 import { prisma } from "./lib/prisma";
-import { getUserActiveGame } from "./lib/utilities/db";
-import { getUserSetupData } from "./lib/utilities/game-routes";
 
 const app = express();
 app.use(cors());
@@ -30,12 +26,9 @@ const io = new Server(server, {
 const gameNamespace = io.of("/gameplay");
 
 // Initialize services
-const gameEventEmitter = GameEventEmitter.getInstance(gameNamespace);
-const gameStateManager = GameStateManager.getInstance();
 const userSocketManager = UserSocketManager.getInstance();
 
 // API routes
-app.use("/api/games", createGamesRouter(gameEventEmitter));
 app.use("/api/users", usersRouter);
 
 // Error handling middleware (must be last)
@@ -46,35 +39,11 @@ gameNamespace.on("connection", async (socket) => {
         console.error("Socket error:", error);
     });
 
-    /* -------- AUTO-REGISTER USER ID ON CONNECT -------- */
     // Extract userId from query parameters
     const userId = socket.handshake.query.userId as string;
     if (userId && userId !== 'undefined' && userId !== 'null') {
         userSocketManager.registerSocket(userId, socket);
         socket.emit(RegisterUserSocketEvent);
-        
-        // Auto-rejoin active game
-        try {
-            const activeGameId = await getUserActiveGame(userId);
-            if (activeGameId) {
-                console.log(`User ${userId} has active game ${activeGameId}, auto-rejoining...`);
-                await gameStateManager.playerRejoinGame(activeGameId, userId, socket.id);
-                userSocketManager.joinGameRoom(userId, activeGameId);
-                
-                const data = {
-                    userSetupData: await getUserSetupData(gameStateManager.getGame(activeGameId))
-                };
-                gameEventEmitter.emitToOtherPlayersInRoom(
-                    activeGameId,
-                    socket.id,
-                    PlayerRejoinedEvent,
-                    data
-                );
-                console.log(`User ${userId} successfully auto-rejoined game ${activeGameId}`);
-            }
-        } catch (error) {
-            console.error(`Failed to auto-rejoin user ${userId}:`, error);
-        }
     } else {
         console.warn("Socket connected without userId in query parameters");
     }
@@ -89,41 +58,6 @@ gameNamespace.on("connection", async (socket) => {
         console.log(`Socket ${socket.id} disconnected. Reason: ${reason}`);
         userSocketManager.unregisterSocket(socket.id);
     });
-    /*
-    PHASE 1
-      Daybreak Effects
-
-    PHASE 2
-      Draw Card from deck
-      Swap Cards
-      Summon Card
-      Play Attack/Spell
-      Level Up
-      Sage Ability
-    
-    PHASE 3
-      Buy Card ✅
-        Item Shop ✅
-        Creature Shop ✅
-      Sell Card
-      Summon Bought Card
-      Refresh Shop
-
-    PHASE 4
-      Discard any number of cards
-      Draw Cards until 5
-
-    MISC
-      Both players confirm action (4 players)
-      Toggle hand view (4 players - Yours/Teammate)
-      Instant Cards
-      Triggered Effects
-      Reshuffle Discard Pile
-      Gain/Lose Gold
-      Gain/Lose Shield
-      Gain/Lose Boost
-      Take Damage
-  */
 });
 
 // Start the server with Prisma
@@ -138,7 +72,6 @@ async function startServer() {
             console.debug(
                 `WebSocket server running on http://localhost:${env.PORT}`
             );
-            await gameStateManager.loadExistingGames();
         });
     } catch (error) {
         console.error("Database connection error:", error);

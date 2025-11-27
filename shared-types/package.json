@@ -9,7 +9,12 @@
     "watch": "tsc --watch"
   },
   "dependencies": {
-    "@prisma/client": "^6.14.0",
-    "prisma": "^6.14.0"
+    "@prisma/client": "^7.0.0",
+    "@prisma/config": "^7.0.0",
+    "pg": "^8.11.3",
+    "prisma": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.10.9"
   }
 }

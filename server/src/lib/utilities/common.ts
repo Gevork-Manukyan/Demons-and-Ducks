@@ -1,4 +1,3 @@
-import { Card } from "@shared-types";
 import { CustomError, NotFoundError } from "../../custom-errors";
 import { UserSocketManager } from "../../services/UserSocketManager";
 
@@ -27,17 +26,7 @@ export function getSocketId(userId: string): string {
     const userSocketManager = UserSocketManager.getInstance();
     const socketId = userSocketManager.getSocketId(userId);
     if (!socketId) {
-        throw new NotFoundError("Socket ID not found");
+        throw new NotFoundError("Socket", "Socket ID not found");
     }
     return socketId;
-}
-
-/**
- * Checks if target card is in the searching cards
- * @param searchingCards - The cards to search in
- * @param targetCard - The card to search for
- * @returns True if the target card is in the searching cards, false otherwise
- */
-export function cardsInclude(searchingCards: Card[], targetCard: Card) {
-    return searchingCards.some(card => targetCard.name === card.name);
 }

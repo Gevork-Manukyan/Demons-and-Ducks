@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useFormState, useFormStatus } from "react-dom";
 import { useEffect } from "react";
@@ -14,7 +14,15 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function SignUpPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [state, formAction] = useFormState(SignUp, null);
+
+  // Redirect to lobby if already logged in
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.push("/lobby");
+    }
+  }, [status, router]);
 
   useEffect(() => {
     if (state?.success && state.username && state.password) {
@@ -24,12 +32,26 @@ export default function SignUpPage() {
         redirect: false,
       }).then((result) => {
         if (!result?.error) {
-          router.push("/");
+          router.push("/lobby");
           router.refresh();
         }
       });
     }
   }, [state, router]);
+
+  // Show loading state while checking session
+  if (status === "loading") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center bg-white px-4 py-12 text-zinc-900">
+        <p>Loading...</p>
+      </main>
+    );
+  }
+
+  // Don't render form if authenticated (redirect will happen)
+  if (status === "authenticated") {
+    return null;
+  }
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-white px-4 py-12 text-zinc-900">

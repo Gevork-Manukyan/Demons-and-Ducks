@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Demon {
+  id        Int      @id @default(autoincrement())
+  name      String
+  rank      String?
+  createdAt DateTime @default(now())
+}
+
+model Duck {
+  id        Int      @id @default(autoincrement())
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+}
+

@@ -1,24 +1,27 @@
 "use client";
 
-import { useState } from "react";
 import { SignOutButton } from "@/components/sign-out-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useGameActions } from "@/hooks/use-game-actions";
 
 export default function LobbyPage() {
-  const [gameCode, setGameCode] = useState("");
-
-  const handleCreateGame = () => {
-    // Placeholder - no functionality yet
-    console.log("Create game clicked");
-  };
-
-  const handleJoinGame = () => {
-    // Placeholder - no functionality yet
-    console.log("Join game with code:", gameCode);
-  };
+  const {
+    gameCode,
+    createdGameCode,
+    createdGameId,
+    createError,
+    isCreating,
+    joinState,
+    setGameCode,
+    handleCreateGame,
+    handleCopyCode,
+    handleGoToGame,
+    joinFormAction,
+  } = useGameActions();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -33,9 +36,45 @@ export default function LobbyPage() {
         <Card className="w-full max-w-md">
           <CardContent className="flex flex-col gap-6 pt-6">
             {/* Create game button */}
-            <Button onClick={handleCreateGame} className="w-full" size="lg">
-              Create game
-            </Button>
+            <div className="space-y-4">
+              <Button
+                onClick={handleCreateGame}
+                className="w-full"
+                size="lg"
+                disabled={isCreating}
+              >
+                {isCreating ? "Creating..." : "Create game"}
+              </Button>
+
+              {createError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{createError}</AlertDescription>
+                </Alert>
+              )}
+
+              {createdGameCode && createdGameId && (
+                <div className="space-y-2">
+                  <Label>Game code</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={createdGameCode}
+                      readOnly
+                      className="flex-1 font-mono"
+                    />
+                    <Button onClick={handleCopyCode} variant="outline">
+                      Copy
+                    </Button>
+                  </div>
+                  <Button
+                    onClick={handleGoToGame}
+                    className="w-full"
+                    size="lg"
+                  >
+                    Go to Game
+                  </Button>
+                </div>
+              )}
+            </div>
 
             {/* Join game section */}
             <div className="space-y-4">
@@ -48,21 +87,27 @@ export default function LobbyPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <form action={joinFormAction} className="space-y-2">
                 <Label htmlFor="gameCode">Game code</Label>
                 <div className="flex gap-2">
                   <Input
                     id="gameCode"
+                    name="gameCode"
                     placeholder="Enter game code"
                     value={gameCode}
                     onChange={(e) => setGameCode(e.target.value)}
                     className="flex-1"
                   />
-                  <Button onClick={handleJoinGame} disabled={!gameCode.trim()}>
+                  <Button type="submit" disabled={!gameCode.trim()}>
                     Join
                   </Button>
                 </div>
-              </div>
+                {joinState?.error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{joinState.error}</AlertDescription>
+                  </Alert>
+                )}
+              </form>
             </div>
           </CardContent>
         </Card>

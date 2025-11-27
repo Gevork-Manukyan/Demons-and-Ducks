@@ -16,5 +16,10 @@ export const signupSchema = authSchema.extend({
   email: z.string().email({ message: "Invalid email address" }).max(100, { message: "Email must be less than 100 characters" }).optional(),
 });
 
+export const joinGameSchema = z.object({
+  gameCode: z.string().min(1, { message: "Game code is required" }),
+});
+
 export type SignupSchema = z.infer<typeof signupSchema>;
+export type JoinGameSchema = z.infer<typeof joinGameSchema>;
 

@@ -1,11 +1,5 @@
-"use client";
-
+import { redirect } from "next/navigation";
 
 export default function Home() {
-
-  return (
-    <main className="min-h-screen bg-gray-100">
-
-    </main>
-  );
+  redirect("/login");
 }

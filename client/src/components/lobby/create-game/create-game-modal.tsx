@@ -1,24 +1,18 @@
 "use client";
 
 import { CreateGameFormData, createGameFormSchema } from "@/lib/zod-schemas";
-import { createGame } from "@/services/game-api";
 import { Input } from "@/components/shadcn-ui/input";
 import { Label } from "@/components/shadcn-ui/label";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { ErrorMessage } from "@/components/error/error-message";
-import { useSession } from "next-auth/react";
 import { useLobbyContext } from "@/contexts/LobbyContext";
 
 export const CreateGameModal = () => {
-    const { showModal, setShowModal, setIsJoining } = useLobbyContext();
-    const router = useRouter();
-    const { data: session } = useSession();
-    const userId = session?.user.id!;
+    const { showModal, setShowModal, setIsJoining, addPlaceholderGame } =
+        useLobbyContext();
     const [isCreatingGame, setIsCreatingGame] = useState(false);
-    const [apiError, setApiError] = useState("");
     const {
         register,
         handleSubmit,
@@ -41,28 +35,19 @@ export const CreateGameModal = () => {
     if (!showModal) return null;
 
     const onSubmit = async (data: CreateGameFormData) => {
-        if (!userId) throw new Error("User ID not found");
+        setIsCreatingGame(true);
+        setIsJoining(true);
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
-        try {
-            setIsCreatingGame(true);
-            setIsJoining(true);
-            const response = await createGame({
-                userId,
-                numPlayers: parseInt(data.numPlayers) as 2 | 4,
-                gameName: data.gameName,
-                isPrivate: data.isPrivate,
-                password: data.isPrivate ? data.password : undefined,
-            });
-            router.push(`/app/game/${response.id}`);
-            closeModal();
-          } catch (err) {
-            setApiError(
-                err instanceof Error ? err.message : "An error occurred"
-            );
-            setIsJoining(false);
-        } finally {
-            setIsCreatingGame(false);
-        }
+        addPlaceholderGame({
+            gameName: data.gameName,
+            isPrivate: data.isPrivate,
+            numPlayersTotal: parseInt(data.numPlayers, 10),
+        });
+
+        setIsCreatingGame(false);
+        setIsJoining(false);
+        closeModal();
     };
 
     function closeModal() {
@@ -98,7 +83,6 @@ export const CreateGameModal = () => {
                 </div>
 
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-                    {/* Game Name Input */}
                     <div className="flex flex-col gap-2">
                         <Label htmlFor="gameName">Game Name:</Label>
                         <Input
@@ -115,7 +99,6 @@ export const CreateGameModal = () => {
                         )}
                     </div>
 
-                    {/* Number of Players Selection */}
                     <div className="flex flex-col gap-2">
                         <Label>Number of Players:</Label>
                         <div className="flex gap-4">
@@ -146,7 +129,6 @@ export const CreateGameModal = () => {
                         </div>
                     </div>
 
-                    {/* Private Game Toggle */}
                     <div className="flex flex-col gap-2">
                         <Label>Game Privacy:</Label>
                         <div className="flex items-center gap-2">
@@ -177,7 +159,6 @@ export const CreateGameModal = () => {
                         </div>
                     </div>
 
-                    {/* Password Input (only shown for private games) */}
                     {watchedIsPrivate === true && (
                         <div className="flex flex-col gap-2">
                             <Label htmlFor="password">Password:</Label>
@@ -191,7 +172,6 @@ export const CreateGameModal = () => {
                         </div>
                     )}
 
-                    {/* Submit Button */}
                     <button
                         type="submit"
                         className="w-full bg-indigo-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-indigo-700 transition-colors duration-200 shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed"
@@ -199,7 +179,6 @@ export const CreateGameModal = () => {
                     >
                         {isCreatingGame ? "Creating Game..." : "Create Game"}
                     </button>
-                    {apiError && <ErrorMessage message={apiError} />}
                 </form>
             </div>
         </div>

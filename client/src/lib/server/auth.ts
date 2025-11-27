@@ -1,7 +1,6 @@
 import NextAuth, { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { loginFormSchema } from "../zod-schemas";
-import { prisma } from "./prisma";
 import { compare } from "bcryptjs";
 
 const config = {
@@ -20,6 +19,8 @@ const config = {
         // Retrieve User from DB
         const { username, password } = validatedFormData.data;
 
+        // Lazy import Prisma to avoid Edge Runtime issues
+        const { prisma } = await import("./prisma");
         const user = await prisma.user.findUnique({
           where: { username },
         });

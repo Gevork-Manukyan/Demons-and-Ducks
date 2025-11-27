@@ -1,17 +1,14 @@
 "use client";
 
-import { GameListing } from "@shared-types";
+import { LobbyGame } from "@/contexts/LobbyContext";
 import { useGameCard } from "./useGameCard";
-import { useLobbyContext } from "@/contexts/LobbyContext";
 
 type GameCardProps = {
-    game: GameListing;
+    game: LobbyGame;
 };
 
 export function GameCard({ game }: GameCardProps) {
-    const { setIsJoining } = useLobbyContext();
-    const { handleJoinClick, showPasswordInput, password, setPassword } =
-        useGameCard(game, setIsJoining);
+    const { handleJoinClick, isJoiningGame, statusMessage } = useGameCard(game);
     const shortGameId = game.id.toString().slice(-6);
 
     return (
@@ -34,23 +31,16 @@ export function GameCard({ game }: GameCardProps) {
                     {game.gameName}
                 </h3>
             </div>
-            {showPasswordInput && (
-                <div className="mt-4">
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Enter game password"
-                        className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                </div>
-            )}
             <button
                 onClick={handleJoinClick}
+                disabled={isJoiningGame}
                 className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200"
             >
-                {showPasswordInput ? "Submit" : "Join Game"}
+                {isJoiningGame ? "Joining..." : "Join Game"}
             </button>
+            {statusMessage && (
+                <p className="mt-2 text-sm text-gray-500">{statusMessage}</p>
+            )}
         </div>
     );
 }

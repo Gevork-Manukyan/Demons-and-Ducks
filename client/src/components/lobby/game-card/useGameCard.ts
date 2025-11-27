@@ -1,53 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import { GameListing } from "@shared-types";
-import { joinGame } from "@/services/game-api";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { toast } from "sonner";
-import { useLobbyContext } from "@/contexts/LobbyContext";
+import { LobbyGame, useLobbyContext } from "@/contexts/LobbyContext";
 
-export function useGameCard(
-    game: GameListing,
-    setIsJoining: (isJoining: boolean) => void
-) {
-    const { data: session } = useSession();
-    const userId = session?.user.id!;
-    const [password, setPassword] = useState("");
-    const [showPasswordInput, setShowPasswordInput] = useState(false);
-    const { refreshGames } = useLobbyContext();
-    const router = useRouter();
+export function useGameCard(game: LobbyGame) {
+    const { setIsJoining } = useLobbyContext();
+    const [isJoiningGame, setIsJoiningGame] = useState(false);
+    const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-    const handleJoinClick = async () => {
-        if (game.isPrivate && !showPasswordInput) {
-            setShowPasswordInput(true);
-            return;
-        }
+    const handleJoinClick = () => {
+        setIsJoining(true);
+        setIsJoiningGame(true);
+        setStatusMessage("Connecting to placeholder lobby...");
 
-        if (!userId) throw new Error("User ID not found");
-
-        try {
-            setIsJoining(true);
-            const response = await joinGame({
-                userId,
-                gameId: game.id,
-                password: password || undefined,
-            });
-            router.push(`/app/game/${response.id}`);
-        }  catch (err) {
-            toast.error('This game no longer exists or is no longer available.');
-            refreshGames();
-        } finally {
+        setTimeout(() => {
+            setStatusMessage(
+                `You joined ${game.gameName}. Replace this with real routing when ready.`
+            );
             setIsJoining(false);
-        }
+            setIsJoiningGame(false);
+        }, 800);
     };
 
     return {
         handleJoinClick,
-        showPasswordInput,
-        setShowPasswordInput,
-        password,
-        setPassword,
+        isJoiningGame,
+        statusMessage,
     };
 }

@@ -26,14 +26,14 @@ class SocketService {
         return SocketService.instance;
     }
 
-    public connect(userId: string): Promise<void> {
+    public connect(userId: string, path: string = "/"): Promise<void> {
         if (this.connectionPromise) {
             return this.connectionPromise;
         }
 
         const url = this.constructUrl(
             process.env.NEXT_PUBLIC_SOCKET_URL!,
-            "/gameplay"
+            path
         );
 
         if (this.socket) {

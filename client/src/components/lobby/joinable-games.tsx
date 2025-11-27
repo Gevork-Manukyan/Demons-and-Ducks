@@ -2,31 +2,34 @@
 
 import { useLobbyContext } from "@/contexts/LobbyContext";
 import { ErrorMessage } from "../error/error-message";
-import { LoadingSpinner } from "../loading/loading-spinner";
 import { EmptyState } from "./empty-state";
 import { GameCard } from "./game-card/game-card";
 import { LoadingScreen } from "../loading/loading-screen";
 import { ActiveGames } from "./active-games";
 
-interface JoinableGamesProps {
-    activeGames: Array<{ gameId: string }>;
-}
-
-export function JoinableGames({ activeGames }: JoinableGamesProps) {
-    const { isFetchingGames, error, currentGames, isJoining } = useLobbyContext();
+export function JoinableGames() {
+    const { error, currentGames, isJoining, refreshGames } = useLobbyContext();
+    const placeholderActiveGames: Array<{ gameId: string }> = [];
 
     return (
         <>
-            <ActiveGames activeGames={activeGames} />
+            <ActiveGames activeGames={placeholderActiveGames} />
             <div className="bg-white rounded-xl shadow-lg p-8 mt-8">
-                <h2 className="text-2xl font-bold text-gray-800 mb-6">
-                    Available Games
-                </h2>
-                {isFetchingGames ? (
-                    <LoadingSpinner />
-                ) : error ? (
+                <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-gray-800">
+                        Available Games
+                    </h2>
+                    <button
+                        type="button"
+                        className="text-sm text-indigo-600 hover:underline"
+                        onClick={() => refreshGames()}
+                    >
+                        Refresh
+                    </button>
+                </div>
+                {error ? (
                     <ErrorMessage message={error} />
-                ) : !isFetchingGames && currentGames.length === 0 ? (
+                ) : currentGames.length === 0 ? (
                     <EmptyState />
                 ) : isJoining ? (
                     <LoadingScreen message="Joining game..." />

@@ -5,7 +5,12 @@ import { registerFormSchema } from "@/lib/zod-schemas";
 import { hash } from "bcryptjs";
 import { AuthError } from "next-auth";
 
-export async function loginAction(prevState: unknown, formData: unknown) {
+type AuthFormState = { error?: string } | null;
+
+export async function loginAction(
+  _prevState: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
   if (!(formData instanceof FormData)) {
     return { error: "Invalid form data" };
   }
@@ -15,24 +20,24 @@ export async function loginAction(prevState: unknown, formData: unknown) {
     await signIn("credentials", formData);
   } catch (error) {
     if (error instanceof AuthError) {
-      switch (error.type) {
-        case "CredentialsSignin":
-          return {
-            message: "Invalid email or password",
-          };
-        default:
-          return {
-            message: "Something went wrong",
-          };
+      if (error.type === "CredentialsSignin") {
+        return { error: "Invalid email or password" };
       }
+
+      return { error: "Something went wrong" };
     }
 
     // nextjs redirects throws error (redirect is called by signIn) so we need to rethrow it
     throw error;
   }
+
+  return null;
 }
 
-export async function registerAction(prevState: unknown, formData: unknown) {
+export async function registerAction(
+  _prevState: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
   if (!(formData instanceof FormData)) {
     return { error: "Invalid form data" };
   }
@@ -68,6 +73,8 @@ export async function registerAction(prevState: unknown, formData: unknown) {
 
   // Sign in the user and attach the auth cookie to the response
   await signIn("credentials", formData);
+
+  return null;
 }
 
 export async function logoutAction() {

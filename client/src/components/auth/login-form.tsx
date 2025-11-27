@@ -1,5 +1,6 @@
 import { Input } from "@/components/shadcn-ui/input";
 import { Label } from "@/components/shadcn-ui/label";
+import { loginAction } from "@/actions/auth-actions";
 import { AuthForm } from "./auth-form";
 import { PasswordField } from "./password-field";
 
@@ -7,7 +8,7 @@ const USERNAME_ID = "username";
 
 export function LoginForm() {
     return (
-        <AuthForm type="login">
+        <AuthForm type="login" action={loginAction}>
             <Label htmlFor={USERNAME_ID}>Username</Label>
             <Input
                 id={USERNAME_ID}

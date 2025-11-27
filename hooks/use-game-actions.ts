@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useFormState } from "react-dom";
 import { createGame, joinGame } from "@/actions/game-actions";
+import { isActionError, isActionSuccess } from "@/lib/errors";
+import { getErrorMessage } from "@/lib/error-utils";
 
 export function useGameActions() {
   const router = useRouter();
@@ -22,14 +24,15 @@ export function useGameActions() {
 
     setIsCreating(false);
 
-    if (result.error) {
-      setCreateError(result.error);
-    } else if (result.success && result.gameCode && result.gameId) {
-      setCreatedGameCode(result.gameCode);
-      setCreatedGameId(result.gameId);
+    if (isActionError(result)) {
+      setCreateError(result.message);
+    } else if (isActionSuccess(result)) {
+      const { gameCode, gameId } = result.data;
+      setCreatedGameCode(gameCode);
+      setCreatedGameId(gameId);
       // Auto-copy to clipboard
       try {
-        await navigator.clipboard.writeText(result.gameCode);
+        await navigator.clipboard.writeText(gameCode);
       } catch (error) {
         console.error("Failed to copy:", error);
       }
@@ -54,8 +57,8 @@ export function useGameActions() {
 
   // Handle join game redirect
   useEffect(() => {
-    if (joinState?.success && joinState.gameId) {
-      router.push(`/game/${joinState.gameId}`);
+    if (joinState && isActionSuccess(joinState)) {
+      router.push(`/game/${joinState.data.gameId}`);
     }
   }, [joinState, router]);
 

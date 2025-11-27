@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useGameActions } from "@/hooks/use-game-actions";
+import { getErrorMessage } from "@/lib/error-utils";
 
 export default function LobbyPage() {
   const {
@@ -102,9 +103,9 @@ export default function LobbyPage() {
                     Join
                   </Button>
                 </div>
-                {joinState?.error && (
+                {getErrorMessage(joinState) && (
                   <Alert variant="destructive">
-                    <AlertDescription>{joinState.error}</AlertDescription>
+                    <AlertDescription>{getErrorMessage(joinState)}</AlertDescription>
                   </Alert>
                 )}
               </form>

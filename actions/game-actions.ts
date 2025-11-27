@@ -5,26 +5,31 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { joinGameSchema } from "@/lib/zod-schemas";
 import { Prisma } from "@prisma/client";
+import {
+  ActionResult,
+  actionSuccess,
+  actionError,
+} from "@/lib/errors";
+import { ERROR_CODES } from "@/lib/error-codes";
 
-type CreateGameResult = {
-  success?: boolean;
-  gameCode?: string;
-  gameId?: number;
-  error?: string;
+type CreateGameData = {
+  gameCode: string;
+  gameId: number;
 };
 
-type JoinGameResult = {
-  success?: boolean;
-  gameId?: number;
-  error?: string;
+type JoinGameData = {
+  gameId: number;
 };
 
-export async function createGame(): Promise<CreateGameResult> {
+export async function createGame(): Promise<ActionResult<CreateGameData>> {
   try {
     const session = await getServerSession(authOptions);
 
     if (!session?.user?.id) {
-      return { error: "You must be logged in to create a game" };
+      return actionError(
+        "You must be logged in to create a game",
+        ERROR_CODES.AUTH_REQUIRED
+      );
     }
 
     const userId = parseInt(session.user.id);
@@ -50,22 +55,31 @@ export async function createGame(): Promise<CreateGameResult> {
       },
     });
 
-    return { success: true, gameCode, gameId: game.id };
+    return actionSuccess({
+      gameCode,
+      gameId: game.id,
+    });
   } catch (error) {
     console.error("[createGame] unexpected error", error);
-    return { error: "Could not create game" };
+    return actionError(
+      "Could not create game",
+      ERROR_CODES.UNKNOWN_ERROR
+    );
   }
 }
 
 export async function joinGame(
   prevState: unknown,
   formData: FormData
-): Promise<JoinGameResult> {
+): Promise<ActionResult<JoinGameData>> {
   try {
     const session = await getServerSession(authOptions);
 
     if (!session?.user?.id) {
-      return { error: "You must be logged in to join a game" };
+      return actionError(
+        "You must be logged in to join a game",
+        ERROR_CODES.AUTH_REQUIRED
+      );
     }
 
     const userId = parseInt(session.user.id);
@@ -76,7 +90,11 @@ export async function joinGame(
 
     if (!validatedData.success) {
       const firstError = validatedData.error.issues[0];
-      return { error: firstError?.message ?? "Invalid game code" };
+      return actionError(
+        firstError?.message ?? "Invalid game code",
+        ERROR_CODES.VALIDATION_ERROR,
+        firstError?.path?.[0]?.toString()
+      );
     }
 
     const { gameCode } = validatedData.data;
@@ -90,7 +108,7 @@ export async function joinGame(
     });
 
     if (!game) {
-      return { error: "Game not found" };
+      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
     }
 
     // Check if user is already a player in this game
@@ -99,12 +117,15 @@ export async function joinGame(
     );
 
     if (existingPlayer) {
-      return { error: "You are already in this game" };
+      return actionError(
+        "You are already in this game",
+        ERROR_CODES.ALREADY_EXISTS
+      );
     }
 
     // Check if game has space (max 2 players for now)
     if (game.players.length >= 2) {
-      return { error: "Game is full" };
+      return actionError("Game is full", ERROR_CODES.GAME_FULL);
     }
 
     // Create player record
@@ -118,15 +139,18 @@ export async function joinGame(
       },
     });
 
-    return { success: true, gameId: game.id };
+    return actionSuccess({ gameId: game.id });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === "P2002") {
-        return { error: "You are already in this game" };
+        return actionError(
+          "You are already in this game",
+          ERROR_CODES.ALREADY_EXISTS
+        );
       }
     }
     console.error("[joinGame] unexpected error", error);
-    return { error: "Could not join game" };
+    return actionError("Could not join game", ERROR_CODES.UNKNOWN_ERROR);
   }
 }
 

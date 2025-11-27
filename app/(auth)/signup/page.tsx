@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { isActionSuccess } from "@/lib/errors";
+import { getErrorMessage } from "@/lib/error-utils";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -25,10 +27,11 @@ export default function SignUpPage() {
   }, [status, router]);
 
   useEffect(() => {
-    if (state?.success && state.username && state.password) {
+    if (isActionSuccess(state)) {
+      const { username, password } = state.data;
       signIn("credentials", {
-        username: state.username,
-        password: state.password,
+        username,
+        password,
         redirect: false,
       }).then((result) => {
         if (!result?.error) {
@@ -112,11 +115,11 @@ export default function SignUpPage() {
               />
             </div>
 
-            {state?.error ? (
+            {getErrorMessage(state) && (
               <Alert variant="destructive">
-                <AlertDescription>{state.error}</AlertDescription>
+                <AlertDescription>{getErrorMessage(state)}</AlertDescription>
               </Alert>
-            ) : null}
+            )}
 
             <SubmitButton />
           </form>

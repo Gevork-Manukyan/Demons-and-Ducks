@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { GameWaitingRoom } from "@/components/game-waiting-room";
+import { Gameplay } from "@/components/gameplay";
 import { useGameUpdates } from "@/hooks/use-game-updates";
+import { markPlayerReady } from "@/actions/game-actions";
 import type { GameState } from "@/actions/game-actions";
 
 type GameClientProps = {
@@ -16,9 +19,31 @@ export function GameClient({
   currentUserId,
 }: GameClientProps) {
   const { gameState, isConnected, error } = useGameUpdates(gameId);
+  const [isReadyLoading, setIsReadyLoading] = useState(false);
 
   // Use real-time state if available, otherwise fall back to initial state
   const currentState = gameState || initialGameState;
+  const gameStatus = currentState.status || "WAITING";
+
+  const handleReadyToggle = async () => {
+    const currentPlayer = currentState.players.find(
+      (p) => p.userId === currentUserId
+    );
+    const newReadyState = !(currentPlayer?.readyToStart ?? false);
+
+    setIsReadyLoading(true);
+    try {
+      await markPlayerReady(gameId, newReadyState);
+    } catch (err) {
+      console.error("Failed to update ready status:", err);
+    } finally {
+      setIsReadyLoading(false);
+    }
+  };
+
+  if (gameStatus === "IN_PROGRESS") {
+    return <Gameplay gameState={currentState} currentUserId={currentUserId} />;
+  }
 
   return (
     <GameWaitingRoom
@@ -27,6 +52,8 @@ export function GameClient({
       currentUserId={currentUserId}
       isConnected={isConnected}
       error={error}
+      onReadyToggle={handleReadyToggle}
+      isReadyLoading={isReadyLoading}
     />
   );
 }

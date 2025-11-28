@@ -5,14 +5,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { GameState } from "@/actions/game-actions";
+type Player = {
+  id: number;
+  userId: number;
+  readyToStart: boolean;
+  user: {
+    id: number;
+    username: string;
+  };
+};
 
 type GameWaitingRoomProps = {
   gameCode: string;
-  players: GameState["players"];
+  players: Player[];
   currentUserId: number;
   isConnected?: boolean;
   error?: string | null;
+  onReadyToggle?: () => void;
+  isReadyLoading?: boolean;
 };
 
 export function GameWaitingRoom({
@@ -21,6 +31,8 @@ export function GameWaitingRoom({
   currentUserId,
   isConnected,
   error,
+  onReadyToggle,
+  isReadyLoading = false,
 }: GameWaitingRoomProps) {
   const [copied, setCopied] = useState(false);
 
@@ -35,6 +47,9 @@ export function GameWaitingRoom({
   };
 
   const canStart = players.length >= 2;
+  const currentPlayer = players.find((p) => p.userId === currentUserId);
+  const isCurrentPlayerReady = currentPlayer?.readyToStart ?? false;
+  const readyCount = players.filter((p) => p.readyToStart).length;
 
   return (
     <Card className="w-full max-w-2xl">
@@ -80,23 +95,38 @@ export function GameWaitingRoom({
             {players.map((player) => (
               <li
                 key={player.id}
-                className="text-sm text-zinc-700 bg-zinc-50 px-3 py-2 rounded-md"
+                className="flex items-center justify-between text-sm text-zinc-700 bg-zinc-50 px-3 py-2 rounded-md"
               >
-                {player.user.username}
-                {player.userId === currentUserId && " (You)"}
+                <span>
+                  {player.user.username}
+                  {player.userId === currentUserId && " (You)"}
+                </span>
+                {player.readyToStart && (
+                  <span className="text-green-600 font-semibold">✓ Ready</span>
+                )}
               </li>
             ))}
           </ul>
+          {canStart && (
+            <p className="text-sm text-zinc-500 text-center">
+              {readyCount}/{players.length} players ready
+            </p>
+          )}
         </div>
 
-        {/* Start Button */}
+        {/* Ready Button */}
         <div className="pt-2">
           <Button
             className="w-full"
             size="lg"
-            disabled={!canStart}
+            disabled={!canStart || isReadyLoading}
+            onClick={onReadyToggle}
           >
-            Start Game
+            {isReadyLoading
+              ? "Loading..."
+              : isCurrentPlayerReady
+                ? "Not Ready"
+                : "Ready"}
           </Button>
           {!canStart && (
             <p className="text-sm text-zinc-500 text-center mt-2">

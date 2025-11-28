@@ -66,9 +66,11 @@ export default async function GamePage({ params }: GamePageProps) {
           gameId={gameIdNum}
           initialGameState={{
             gameCode: game.gameCode,
+            status: game.status,
             players: game.players.map((p) => ({
               id: p.id,
               userId: p.userId,
+              readyToStart: p.readyToStart,
               user: {
                 id: p.user.id,
                 username: p.user.username,

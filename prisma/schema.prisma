@@ -59,6 +59,7 @@ model Game {
   gameCode    String    @unique
   pointsToWin Int       @default(3)
   cardGrid    Json?
+  status      String    @default("WAITING")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   players     Player[]
@@ -72,6 +73,7 @@ model Player {
   hand         Json
   discardPile  Json
   currentPoints Int      @default(0)
+  readyToStart Boolean   @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)

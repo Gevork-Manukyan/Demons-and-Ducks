@@ -70,9 +70,11 @@ export async function createGame(): Promise<ActionResult<CreateGameData>> {
 
 export type GameState = {
   gameCode: string;
+  status: string;
   players: Array<{
     id: number;
     userId: number;
+    readyToStart: boolean;
     user: {
       id: number;
       username: string;
@@ -126,9 +128,11 @@ export async function getGameState(
 
     return actionSuccess({
       gameCode: game.gameCode,
+      status: game.status,
       players: game.players.map((p) => ({
         id: p.id,
         userId: p.userId,
+        readyToStart: p.readyToStart,
         user: {
           id: p.user.id,
           username: p.user.username,
@@ -224,6 +228,110 @@ export async function joinGame(
     }
     console.error("[joinGame] unexpected error", error);
     return actionError("Could not join game", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+export async function markPlayerReady(
+  gameId: number,
+  ready: boolean
+): Promise<ActionResult<GameState>> {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return actionError(
+        "You must be logged in to mark ready status",
+        ERROR_CODES.AUTH_REQUIRED
+      );
+    }
+
+    const userId = parseInt(session.user.id);
+
+    // Verify user is a player in this game
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        players: true,
+      },
+    });
+
+    if (!game) {
+      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    const player = game.players.find((p) => p.userId === userId);
+
+    if (!player) {
+      return actionError(
+        "You are not a player in this game",
+        ERROR_CODES.AUTH_REQUIRED
+      );
+    }
+
+    // Check if game has already started
+    if (game.status === "IN_PROGRESS") {
+      return actionError("Game has already started", ERROR_CODES.UNAUTHORIZED);
+    }
+
+    // Update player's ready status
+    await prisma.player.update({
+      where: { id: player.id },
+      data: { readyToStart: ready },
+    });
+
+    // Check if all players are ready
+    const updatedGame = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        players: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!updatedGame) {
+      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    const allPlayersReady =
+      updatedGame.players.length >= 2 &&
+      updatedGame.players.every((p) => p.readyToStart);
+
+    // If all players are ready, update game status
+    if (allPlayersReady && updatedGame.status === "WAITING") {
+      await prisma.game.update({
+        where: { id: gameId },
+        data: { status: "IN_PROGRESS" },
+      });
+      updatedGame.status = "IN_PROGRESS";
+    }
+
+    return actionSuccess({
+      gameCode: updatedGame.gameCode,
+      status: updatedGame.status,
+      players: updatedGame.players.map((p) => ({
+        id: p.id,
+        userId: p.userId,
+        readyToStart: p.readyToStart,
+        user: {
+          id: p.user.id,
+          username: p.user.username,
+        },
+      })),
+    });
+  } catch (error) {
+    console.error("[markPlayerReady] unexpected error", error);
+    return actionError(
+      "Could not update ready status",
+      ERROR_CODES.UNKNOWN_ERROR
+    );
   }
 }
 

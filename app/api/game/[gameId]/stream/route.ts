@@ -52,7 +52,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       const send = (data: string) => {
         try {
           controller.enqueue(encoder.encode(data));
-        } catch (error) {
+        } catch {
           // Client disconnected, stop sending
           if (intervalId) {
             clearInterval(intervalId);
@@ -64,21 +64,72 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       // Send initial connection message
       send(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
 
-      let lastPlayerCount = game.players.length;
+      let lastState: {
+        playerCount: number;
+        status: string;
+        readyStatuses: Record<number, boolean>;
+      } | null = null;
 
       const pollGameState = async () => {
         try {
           const result = await getGameState(gameIdNum);
 
           if (isActionSuccess(result)) {
-            const currentPlayerCount = result.data.players.length;
+            const data = result.data as unknown as {
+              gameCode: string;
+              status: string;
+              players: Array<{
+                id: number;
+                userId: number;
+                readyToStart: boolean;
+                user: {
+                  id: number;
+                  username: string;
+                };
+              }>;
+            };
+            const currentPlayerCount = data.players.length;
+            const currentStatus = data.status;
+            const currentReadyStatuses: Record<number, boolean> = {};
+            data.players.forEach((p) => {
+              currentReadyStatuses[p.id] = p.readyToStart;
+            });
 
-            // Only send update if player count changed or if it's the first poll
-            if (currentPlayerCount !== lastPlayerCount) {
+            // Check if anything changed
+            let hasChanged = false;
+            if (!lastState) {
+              // First poll, always send update
+              hasChanged = true;
+            } else {
+              // Check for changes
+              if (
+                currentPlayerCount !== lastState.playerCount ||
+                currentStatus !== lastState.status
+              ) {
+                hasChanged = true;
+              } else {
+                // Check if any ready status changed
+                for (const playerId in currentReadyStatuses) {
+                  if (
+                    currentReadyStatuses[playerId] !==
+                    lastState.readyStatuses[playerId]
+                  ) {
+                    hasChanged = true;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (hasChanged) {
               send(
-                `data: ${JSON.stringify({ type: "update", data: result.data })}\n\n`
+                `data: ${JSON.stringify({ type: "update", data })}\n\n`
               );
-              lastPlayerCount = currentPlayerCount;
+              lastState = {
+                playerCount: currentPlayerCount,
+                status: currentStatus,
+                readyStatuses: currentReadyStatuses,
+              };
             } else {
               // Send heartbeat to keep connection alive
               send(`data: ${JSON.stringify({ type: "heartbeat" })}\n\n`);
@@ -104,7 +155,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         }
         try {
           controller.close();
-        } catch (error) {
+        } catch {
           // Ignore errors when closing
         }
       });

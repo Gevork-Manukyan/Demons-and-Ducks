@@ -54,11 +54,25 @@ model VerificationToken {
   @@id([identifier, token])
 }
 
+model Card {
+  id        Int      @id @default(autoincrement())
+  name      String
+  image     String
+  effect    Json
+  deck      String
+  type      String
+  isBasic   Boolean?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([name, deck])
+}
+
 model Game {
   id          Int       @id @default(autoincrement())
   gameCode    String    @unique
   pointsToWin Int       @default(3)
-  cardGrid    Json?
+  cardGrid    Json?     // Stores card references (Card IDs) in grid format
   status      String    @default("WAITING")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -69,9 +83,9 @@ model Player {
   id           Int       @id @default(autoincrement())
   userId       Int
   gameId       Int
-  deck         Json
-  hand         Json
-  discardPile  Json
+  deck         Json      // Array of Card IDs (Int[])
+  hand         Json      // Array of Card IDs (Int[])
+  discardPile  Json      // Array of Card IDs (Int[])
   currentPoints Int      @default(0)
   readyToStart Boolean   @default(false)
   createdAt    DateTime  @default(now())

@@ -9,8 +9,8 @@ export function GameField({ field, cardGrid }: GameFieldProps) {
   const gridData = cardGrid ?? field;
 
   return (
-    <div className="w-full min-h-[200px] bg-zinc-50 border-2 border-dashed border-zinc-300 rounded-lg p-4">
-      <div className="flex items-center justify-center h-full min-h-[200px]">
+    <div className="w-full h-full bg-zinc-50 border-2 border-zinc-300 rounded-lg p-4 flex flex-col">
+      <div className="flex items-center justify-center h-full">
         {gridData ? (
           <p className="text-sm text-zinc-500">
             Field content will be displayed here

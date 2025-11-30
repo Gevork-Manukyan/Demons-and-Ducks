@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { GameClient } from "./game-client";
 
@@ -53,15 +54,17 @@ export default async function GamePage({ params }: GamePageProps) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      {/* Navbar */}
-      <nav className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-zinc-900">Demons and Ducks</h1>
+    <div className="flex h-screen flex-col">
+      {/* Minimal Header */}
+      <nav className="flex items-center justify-between bg-white px-6 py-4">
+        <Link href="/lobby" className="text-xl font-semibold text-zinc-900 hover:text-zinc-700 transition-colors">
+          Demons and Ducks
+        </Link>
         <SignOutButton />
       </nav>
 
-      {/* Main content */}
-      <main className="flex flex-1 flex-col items-center justify-center gap-6 bg-white px-6 py-16">
+      {/* Main content - full height */}
+      <main className="flex flex-1 flex-col bg-white overflow-hidden">
         <GameClient
           gameId={gameIdNum}
           initialGameState={{

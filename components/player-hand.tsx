@@ -11,7 +11,7 @@ type PlayerHandProps = {
 export function PlayerHand({ hand, onCardClick }: PlayerHandProps) {
   return (
     <div className="w-full">
-      <div className="flex gap-2 overflow-x-auto pb-2">
+      <div className="flex gap-2 overflow-x-auto p-2">
         {hand.length === 0 ? (
           <p className="text-sm text-zinc-500 py-8 text-center w-full">
             No cards in hand

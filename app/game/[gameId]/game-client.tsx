@@ -42,7 +42,11 @@ export function GameClient({
   };
 
   if (gameStatus === "IN_PROGRESS") {
-    return <Gameplay gameState={currentState} currentUserId={currentUserId} />;
+    return (
+      <div className="h-full w-full">
+        <Gameplay gameState={currentState} currentUserId={currentUserId} />
+      </div>
+    );
   }
 
   return (

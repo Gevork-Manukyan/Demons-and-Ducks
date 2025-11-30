@@ -20,19 +20,19 @@ export function GameCard({ card, onClick, className }: GameCardProps) {
     <div
       onClick={onClick}
       className={cn(
-        "shrink-0 w-20 h-28 rounded-lg border-2 cursor-pointer hover:shadow-lg transition-all flex flex-col overflow-hidden",
+        "shrink-0 w-40 h-56 rounded-lg border-2 cursor-pointer hover:shadow-lg transition-all flex flex-col overflow-hidden",
         isDuck ? "bg-blue-50 border-blue-300" : "bg-red-50 border-red-300",
         onClick && "hover:scale-105",
         className
       )}
     >
       {/* Top section: Name and Special/Basic - fixed height */}
-      <div className="h-8 flex flex-col justify-center px-1.5 border-b border-zinc-300">
-        <p className="text-xs font-semibold leading-tight truncate">
+      <div className="h-16 flex flex-col justify-center px-1.5 border-b border-zinc-300">
+        <p className="text-sm font-semibold leading-tight truncate">
           {card.name}
         </p>
         {isCreature && (
-          <p className="text-[10px] text-zinc-600 leading-tight">
+          <p className="text-xs text-zinc-600 leading-tight">
             {isBasic ? "Basic" : "Special"} {isDuck ? "Duck" : "Demon"}
           </p>
         )}
@@ -61,8 +61,8 @@ export function GameCard({ card, onClick, className }: GameCardProps) {
 
       {/* Bottom section: Effect - fixed height (same as top) */}
       {hasEffect && (
-        <div className="h-8 flex items-center justify-center px-1.5 border-t border-zinc-300 bg-zinc-50">
-          <p className="text-[10px] text-zinc-700 text-center leading-tight line-clamp-2">
+        <div className="h-16 flex items-center justify-center px-1.5 border-t border-zinc-300 bg-zinc-50">
+          <p className="text-xs text-zinc-700 text-center leading-tight line-clamp-2">
             {card.effect.join(", ")}
           </p>
         </div>

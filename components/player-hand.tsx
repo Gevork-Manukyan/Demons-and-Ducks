@@ -1,8 +1,11 @@
 "use client";
 
+import { GameCard } from "@/components/game-card";
+import type { Card } from "@/lib/card-types";
+
 type PlayerHandProps = {
-  hand: unknown[];
-  onCardClick?: (card: unknown, index: number) => void;
+  hand: Card[];
+  onCardClick?: (card: Card, index: number) => void;
 };
 
 export function PlayerHand({ hand, onCardClick }: PlayerHandProps) {
@@ -15,13 +18,11 @@ export function PlayerHand({ hand, onCardClick }: PlayerHandProps) {
           </p>
         ) : (
           hand.map((card, index) => (
-            <div
+            <GameCard
               key={index}
+              card={card}
               onClick={() => onCardClick?.(card, index)}
-              className="flex-shrink-0 w-20 h-28 bg-zinc-100 border-2 border-zinc-300 rounded-lg cursor-pointer hover:border-zinc-400 hover:shadow-md transition-all flex items-center justify-center"
-            >
-              <span className="text-xs text-zinc-600">Card {index + 1}</span>
-            </div>
+            />
           ))
         )}
       </div>

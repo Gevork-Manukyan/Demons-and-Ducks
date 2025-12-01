@@ -9,7 +9,8 @@ export type AbilityType =
   | "repel"
   | "displace"
   | "swap"
-  | "hypnotize";
+  | "hypnotize"
+  | "negate";
 
 export type CardEffect = AbilityType[];
 

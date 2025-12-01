@@ -12,7 +12,7 @@ import {
 type GameFieldProps = {
   grid: GameGrid;
   selectedCard: Card | null;
-  onCardPlace?: (card: Card, row: number, col: number) => void;
+  onCardPlace: (card: Card, row: number, col: number) => void;
 };
 
 export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
@@ -55,50 +55,67 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
     return positions;
   }, [updatedGrid]);
 
-  function renderSingleSpace() {
-    if (positionsToDisplay.length === 1) {
-      const { row, col, cell } = positionsToDisplay[0];
-      if (cell.card) {
-        return <GameCard card={cell.card} />
-      } else {
-        return (
-          <EmptyCardSpace
-            onClick={() => {
-              if (selectedCard) {
-                onCardPlace?.(selectedCard, row, col);
-              }
-            }}
-          />
-        );
-      }
+  // Card dimensions and gap for positioning (in pixals)
+  const cardWidth = 120;
+  const cardHeight = 168;
+  const gap = 8;
+
+  // Calculate the bounding box of all displayed positions
+  const bounds = useMemo(() => {
+    if (positionsToDisplay.length === 0) {
+      return { minRow: 2, maxRow: 2, minCol: 2, maxCol: 2 };
     }
-    return null;
-  }
+    let minRow = 5, maxRow = -1, minCol = 5, maxCol = -1;
+    positionsToDisplay.forEach(({ row, col }) => {
+      minRow = Math.min(minRow, row);
+      maxRow = Math.max(maxRow, row);
+      minCol = Math.min(minCol, col);
+      maxCol = Math.max(maxCol, col);
+    });
+    return { minRow, maxRow, minCol, maxCol };
+  }, [positionsToDisplay]);
+
+  // Calculate container dimensions
+  const containerWidth = (bounds.maxCol - bounds.minCol + 1) * cardWidth + (bounds.maxCol - bounds.minCol) * gap;
+  const containerHeight = (bounds.maxRow - bounds.minRow + 1) * cardHeight + (bounds.maxRow - bounds.minRow) * gap;
 
   return (
     <div className="w-full h-full bg-zinc-50 border-2 border-zinc-300 rounded-lg p-4 flex flex-col">
       <div className="flex-1 flex items-center justify-center">
-        {positionsToDisplay.length === 1 ? (
-          renderSingleSpace()
-        ) : (
-          <div className="grid grid-cols-5 gap-2 auto-rows-max justify-items-center">
-            {positionsToDisplay.map(({ row, col, cell }) => (
-              <div key={`${row}-${col}`} style={{ gridColumn: col + 1, gridRow: row + 1 }}>
+        <div
+          className="relative"
+          style={{
+            width: containerWidth,
+            height: containerHeight,
+          }}
+        >
+          {positionsToDisplay.map(({ row, col, cell }) => {
+            const x = (col - bounds.minCol) * (cardWidth + gap);
+            const y = (row - bounds.minRow) * (cardHeight + gap);
+            return (
+              <div
+                key={`${row}-${col}`}
+                className="absolute"
+                style={{
+                  left: x,
+                  top: y,
+                }}
+              >
                 {cell.card ? (
                   <GameCard card={cell.card} />
                 ) : (
                   <EmptyCardSpace
                     onClick={() => {
                       if (selectedCard) {
-                        onCardPlace?.(selectedCard, row, col);
+                        onCardPlace(selectedCard, row, col);
                       }
                     }}
                   />
                 )}
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </div>
     </div>
   );

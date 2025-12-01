@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { GameCard } from "@/components/game-card";
 import { EmptyCardSpace } from "@/components/empty-card-space";
 import type { Card } from "@/lib/card-types";
@@ -79,14 +79,49 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
   const containerWidth = (bounds.maxCol - bounds.minCol + 1) * cardWidth + (bounds.maxCol - bounds.minCol) * gap;
   const containerHeight = (bounds.maxRow - bounds.minRow + 1) * cardHeight + (bounds.maxRow - bounds.minRow) * gap;
 
+  // Scale the cards to fit the parent element
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const updateScale = () => {
+      if (containerRef.current) {
+        const parent = containerRef.current.parentElement;
+        if (parent) {
+          const availableWidth = parent.clientWidth - 32; // Account for padding (16px * 2)
+          const availableHeight = parent.clientHeight - 32; // Account for padding (16px * 2)
+          
+          const widthScale = availableWidth / containerWidth;
+          const heightScale = availableHeight / containerHeight;
+          
+          setScale(Math.min(1, widthScale, heightScale));
+        }
+      }
+    };
+
+    updateScale();
+    const resizeObserver = new ResizeObserver(updateScale);
+    if (containerRef.current?.parentElement) {
+      resizeObserver.observe(containerRef.current.parentElement);
+    }
+    
+    window.addEventListener('resize', updateScale);
+    return () => {
+      window.removeEventListener('resize', updateScale);
+      resizeObserver.disconnect();
+    };
+  }, [containerWidth, containerHeight]);
+
   return (
-    <div className="w-full h-full bg-zinc-50 border-2 border-zinc-300 rounded-lg p-4 flex flex-col">
-      <div className="flex-1 flex items-center justify-center">
+    <div className="h-full min-h-0 flex items-center justify-center overflow-hidden px-4">
+      <div className="flex items-center justify-center" style={{ maxWidth: 'fit-content', maxHeight: '100%' }} ref={containerRef}>
         <div
-          className="relative"
+          className="relative origin-center"
           style={{
             width: containerWidth,
             height: containerHeight,
+            transform: `scale(${scale})`,
+            margin: '2px',
           }}
         >
           {positionsToDisplay.map(({ row, col, cell }) => {

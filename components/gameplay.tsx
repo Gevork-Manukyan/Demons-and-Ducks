@@ -98,7 +98,7 @@ export function Gameplay({ gameState, currentUserId }: GameplayProps) {
       </div>
 
       {/* Game Field - Middle (takes remaining space) */}
-      <div className="flex-1 px-4 py-4 min-h-0">
+      <div className="flex-1 min-h-0 overflow-hidden">
         <GameField
           grid={grid}
           selectedCard={selectedCard}

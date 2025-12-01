@@ -88,17 +88,9 @@ export function Gameplay({ gameState, currentUserId }: GameplayProps) {
   };
 
   return (
-    <div className="flex flex-col h-full w-full">
-      {/* Opponent Hand - Top */}
-      <div className="px-4 pt-4">
-        <OpponentHand
-          handCount={0}
-          opponentName={opponent?.user.username}
-        />
-      </div>
-
-      {/* Game Field - Middle (takes remaining space) */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-row h-full w-full">
+      {/* Left Side - Game Field (50%) */}
+      <div className="w-1/2 h-full min-h-0 overflow-hidden">
         <GameField
           grid={grid}
           selectedCard={selectedCard}
@@ -106,14 +98,30 @@ export function Gameplay({ gameState, currentUserId }: GameplayProps) {
         />
       </div>
 
-      {/* Player Hand - Bottom */}
-      <div className="px-4 pb-4">
-        {/* TODO: Remove test cards */}
-        <PlayerHand
-          hand={hand}
-          selectedCard={selectedCard}
-          onCardSelect={selectCard}
-        />
+      {/* Right Side - Hands (50%) */}
+      <div className="w-1/2 h-full flex flex-col">
+        {/* Opponent Hand - Top */}
+        <div className="px-4 pt-4">
+          <OpponentHand
+            handCount={0}
+            opponentName={opponent?.user.username}
+          />
+        </div>
+
+        {/* Info Section */}
+        <div className="flex-1"> 
+
+        </div>
+
+        {/* Player Hand - Bottom (takes remaining space) */}
+        <div className="px-4 pb-4 min-h-0 overflow-hidden">
+          {/* TODO: Remove test cards */}
+          <PlayerHand
+            hand={hand}
+            selectedCard={selectedCard}
+            onCardSelect={selectCard}
+          />
+        </div>
       </div>
     </div>
   );

@@ -88,8 +88,8 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
       if (containerRef.current) {
         const parent = containerRef.current.parentElement;
         if (parent) {
-          const availableWidth = parent.clientWidth - 32; // Account for padding (16px * 2)
-          const availableHeight = parent.clientHeight - 32; // Account for padding (16px * 2)
+          const availableWidth = parent.clientWidth;
+          const availableHeight = parent.clientHeight;
           
           const widthScale = availableWidth / containerWidth;
           const heightScale = availableHeight / containerHeight;
@@ -113,7 +113,7 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
   }, [containerWidth, containerHeight]);
 
   return (
-    <div className="h-full min-h-0 flex items-center justify-center overflow-hidden px-4">
+    <div className="h-full min-h-0 flex items-center justify-center overflow-hidden">
       <div className="flex items-center justify-center" style={{ maxWidth: 'fit-content', maxHeight: '100%' }} ref={containerRef}>
         <div
           className="relative origin-center"

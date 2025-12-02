@@ -11,6 +11,7 @@ import {
   actionError,
 } from "@/lib/errors";
 import { ERROR_CODES } from "@/lib/error-codes";
+import { initializeGame } from "@/lib/game-initialization";
 
 type CreateGameData = {
   gameCode: string;
@@ -304,8 +305,11 @@ export async function markPlayerReady(
       updatedGame.players.length >= 2 &&
       updatedGame.players.every((p) => p.readyToStart);
 
-    // If all players are ready, update game status
+    // If all players are ready, initialize the game and update status
     if (allPlayersReady && updatedGame.status === "WAITING") {
+      // Initialize game: assign decks, shuffle, draw cards, select first player
+      await initializeGame(gameId);
+      
       await prisma.game.update({
         where: { id: gameId },
         data: { status: "IN_PROGRESS" },

@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { GameClient } from "./game-client";
+import { convertPrismaCardToCardType } from "@/lib/card-utils";
+import type { Card } from "@/lib/card-types";
 
 type GamePageProps = {
   params: Promise<{ gameId: string }>;
@@ -24,9 +26,6 @@ export default async function GamePage({ params }: GamePageProps) {
     redirect("/lobby");
   }
 
-  const userId = parseInt(session.user.id);
-
-  // Verify user is a player in this game
   const game = await prisma.game.findUnique({
     where: { id: gameIdNum },
     include: {
@@ -47,11 +46,28 @@ export default async function GamePage({ params }: GamePageProps) {
     redirect("/lobby");
   }
 
+  const userId = parseInt(session.user.id);
   const player = game.players.find((p) => p.userId === userId);
 
   if (!player) {
     redirect("/lobby");
   }
+
+  const handCardIds = Array.isArray(player.hand) ? (player.hand as number[]) : [];
+  
+  // Fetch Card records for the hand
+  let initialHand: Card[] = [];
+  if (handCardIds.length > 0) {
+    const cardRecords = await prisma.card.findMany({
+      where: { id: { in: handCardIds } },
+    });
+    
+    initialHand = cardRecords.map(convertPrismaCardToCardType);
+  }
+
+  // Find opponent and get their hand count
+  const opponent = game.players.find((p) => p.userId !== userId);
+  const opponentHandCount = opponent ? (opponent.hand as number[]).length : 0;
 
   return (
     <div className="flex h-screen flex-col">
@@ -81,6 +97,8 @@ export default async function GamePage({ params }: GamePageProps) {
             })),
           }}
           currentUserId={userId}
+          initialHand={initialHand}
+          initialOpponentHandCount={opponentHandCount}
         />
       </main>
     </div>

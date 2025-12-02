@@ -69,14 +69,15 @@ model Card {
 }
 
 model Game {
-  id          Int       @id @default(autoincrement())
-  gameCode    String    @unique
-  pointsToWin Int       @default(3)
-  cardGrid    Json?     // Stores card references (Card IDs) in grid format
-  status      String    @default("WAITING")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  players     Player[]
+  id                 Int       @id @default(autoincrement())
+  gameCode           String    @unique
+  pointsToWin        Int       @default(3)
+  cardGrid           Json?     // Stores card references (Card IDs) in grid format
+  status             String    @default("WAITING")
+  currentTurnPlayerId Int?     
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  players            Player[]
 }
 
 model Player {

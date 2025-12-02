@@ -6,17 +6,22 @@ import { Gameplay } from "@/components/gameplay";
 import { useGameUpdates } from "@/hooks/use-game-updates";
 import { markPlayerReady } from "@/actions/game-actions";
 import type { GameState } from "@/actions/game-actions";
+import type { Card } from "@/lib/card-types";
 
 type GameClientProps = {
   gameId: number;
   initialGameState: GameState;
   currentUserId: number;
+  initialHand: Card[];
+  initialOpponentHandCount: number;
 };
 
 export function GameClient({
   gameId,
   initialGameState,
   currentUserId,
+  initialHand,
+  initialOpponentHandCount,
 }: GameClientProps) {
   const { gameState, isConnected, error } = useGameUpdates(gameId);
   const [isReadyLoading, setIsReadyLoading] = useState(false);
@@ -44,7 +49,12 @@ export function GameClient({
   if (gameStatus === "IN_PROGRESS") {
     return (
       <div className="h-full w-full">
-        <Gameplay gameState={currentState} currentUserId={currentUserId} />
+        <Gameplay 
+          gameState={currentState} 
+          currentUserId={currentUserId}
+          initialHand={initialHand}
+          initialOpponentHandCount={initialOpponentHandCount}
+        />
       </div>
     );
   }

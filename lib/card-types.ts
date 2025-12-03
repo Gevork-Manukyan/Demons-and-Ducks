@@ -1,4 +1,6 @@
-export type DeckType = "demon" | "duck";
+export const DECK_TYPES = ["demon", "duck"] as const;
+
+export type DeckType = (typeof DECK_TYPES)[number];
 
 export type AbilityType =
   | "draw1"

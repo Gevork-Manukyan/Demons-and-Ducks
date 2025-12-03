@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import type { Card } from "@/lib/card-types";
+import { DECK_TYPES } from "@/lib/card-types";
 import { cn } from "@/lib/utils";
 
 type GameCardProps = {
@@ -12,7 +13,7 @@ type GameCardProps = {
 };
 
 export function GameCard({ card, onClick, className, isSelected = false }: GameCardProps) {
-  const isDuck = card.deck === "duck";
+  const isDuck = card.deck === DECK_TYPES[1];
   const isCreature = card.type === "creature";
   const hasEffect = card.effect.length > 0;
   const isBasic = isCreature && card.isBasic;

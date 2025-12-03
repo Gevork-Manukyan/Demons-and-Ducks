@@ -6,6 +6,7 @@ import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { GameClient } from "./game-client";
 import { convertPrismaCardToCardType } from "@/lib/card-utils";
+import { parseCardIdArray } from "@/lib/zod-schemas";
 import type { Card } from "@/lib/card-types";
 
 type GamePageProps = {
@@ -53,7 +54,7 @@ export default async function GamePage({ params }: GamePageProps) {
     redirect("/lobby");
   }
 
-  const handCardIds = Array.isArray(player.hand) ? (player.hand as number[]) : [];
+  const handCardIds = parseCardIdArray(player.hand);
   
   // Fetch Card records for the hand
   let initialHand: Card[] = [];
@@ -67,7 +68,7 @@ export default async function GamePage({ params }: GamePageProps) {
 
   // Find opponent and get their hand count
   const opponent = game.players.find((p) => p.userId !== userId);
-  const opponentHandCount = opponent ? (opponent.hand as number[]).length : 0;
+  const opponentHandCount = opponent ? parseCardIdArray(opponent.hand).length : 0;
 
   return (
     <div className="flex h-screen flex-col">

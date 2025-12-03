@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { safeParseCardIdArray } from "@/lib/zod-schemas";
+import { DECK_TYPES } from "@/lib/card-types";
 
 /**
  * Fisher-Yates shuffle algorithm
@@ -34,15 +36,11 @@ export async function initializeGame(gameId: number): Promise<void> {
 
   // Check if game is already initialized (decks are populated)
   const firstPlayer = game.players[0];
-  const deckArray = firstPlayer.deck as number[];
-  if (Array.isArray(deckArray) && deckArray.length > 0) {
-    // Game already initialized, skip
-    return;
-  }
+  const deckArray = safeParseCardIdArray(firstPlayer.deck);
+  if (deckArray.length > 0) return;
 
   // Randomly assign demon/duck decks ensuring they're different
-  const deckTypes: ('demon' | 'duck')[] = ['demon', 'duck'];
-  const shuffledDeckTypes = shuffleArray(deckTypes);
+  const shuffledDeckTypes = shuffleArray([...DECK_TYPES]);
   
   const player1 = game.players[0];
   const player2 = game.players[1];
@@ -51,13 +49,13 @@ export async function initializeGame(gameId: number): Promise<void> {
 
   // Fetch all cards for each deck type
   const [demonCards, duckCards] = await Promise.all([
-    prisma.card.findMany({ where: { deck: 'demon' } }),
-    prisma.card.findMany({ where: { deck: 'duck' } }),
+    prisma.card.findMany({ where: { deck: DECK_TYPES[0] } }),
+    prisma.card.findMany({ where: { deck: DECK_TYPES[1] } }),
   ]);
 
   // Shuffle each deck
-  const player1Deck = player1DeckType === 'demon' ? demonCards : duckCards;
-  const player2Deck = player2DeckType === 'demon' ? demonCards : duckCards;
+  const player1Deck = player1DeckType === DECK_TYPES[0] ? demonCards : duckCards;
+  const player2Deck = player2DeckType === DECK_TYPES[0] ? demonCards : duckCards;
   
   const shuffledPlayer1Deck = shuffleArray(player1Deck);
   const shuffledPlayer2Deck = shuffleArray(player2Deck);

@@ -52,6 +52,7 @@ export function GameClient({
         <Gameplay 
           gameState={currentState} 
           currentUserId={currentUserId}
+          gameId={gameId}
           initialHand={initialHand}
           initialOpponentHandCount={initialOpponentHandCount}
         />

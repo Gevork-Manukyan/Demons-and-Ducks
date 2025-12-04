@@ -702,33 +702,24 @@ async function main() {
     },
   ];
 
+  // Clear existing cards to allow re-seeding
+  console.log('🗑️  Clearing existing cards...');
+  await prisma.card.deleteMany({});
+
   // Insert all cards into database
-  console.log(`📦 Inserting ${demonCards.length + duckCards.length} cards...`);
-  
-  for (const card of [...demonCards, ...duckCards]) {
-    await prisma.card.upsert({
-      where: {
-        name_deck: {
-          name: card.name,
-          deck: card.deck,
-        },
-      },
-      update: {
-        image: card.image,
-        effect: card.effect,
-        type: card.type,
-        isBasic: card.isBasic,
-      },
-      create: {
-        name: card.name,
-        image: card.image,
-        effect: card.effect,
-        deck: card.deck,
-        type: card.type,
-        isBasic: card.isBasic,
-      },
-    });
-  }
+  const allCards = [...demonCards, ...duckCards];
+  console.log(`📦 Inserting ${allCards.length} cards...`);
+
+  await prisma.card.createMany({
+    data: allCards.map(card => ({
+      name: card.name,
+      image: card.image,
+      effect: card.effect,
+      deck: card.deck,
+      type: card.type,
+      isBasic: card.isBasic,
+    })),
+  });
 
   console.log('✅ Seed completed successfully!');
 }
@@ -741,4 +732,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-

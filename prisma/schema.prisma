@@ -64,8 +64,6 @@ model Card {
   isBasic   Boolean?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-
-  @@unique([name, deck])
 }
 
 model Game {

@@ -12,6 +12,9 @@ import {
 } from "@/lib/errors";
 import { ERROR_CODES } from "@/lib/error-codes";
 import { initializeGame } from "@/lib/game-initialization";
+import { parseCardIdArray } from "@/lib/zod-schemas";
+import { convertPrismaCardToCardType } from "@/lib/card-utils";
+import type { Card } from "@/lib/card-types";
 
 type CreateGameData = {
   gameCode: string;
@@ -229,6 +232,110 @@ export async function joinGame(
     }
     console.error("[joinGame] unexpected error", error);
     return actionError("Could not join game", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+export async function getPlayerHand(
+  gameId: number
+): Promise<ActionResult<Card[]>> {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return actionError(
+        "You must be logged in to view your hand",
+        ERROR_CODES.AUTH_REQUIRED
+      );
+    }
+
+    const userId = parseInt(session.user.id);
+
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        players: true,
+      },
+    });
+
+    if (!game) {
+      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    const player = game.players.find((p) => p.userId === userId);
+
+    if (!player) {
+      return actionError(
+        "You are not a player in this game",
+        ERROR_CODES.AUTH_REQUIRED
+      );
+    }
+
+    const handCardIds = parseCardIdArray(player.hand);
+
+    if (handCardIds.length === 0) {
+      return actionSuccess([]);
+    }
+
+    const cardRecords = await prisma.card.findMany({
+      where: { id: { in: handCardIds } },
+    });
+
+    const hand = cardRecords.map(convertPrismaCardToCardType);
+
+    return actionSuccess(hand);
+  } catch (error) {
+    console.error("[getPlayerHand] unexpected error", error);
+    return actionError("Could not fetch player hand", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+export async function getOpponentHandCount(
+  gameId: number
+): Promise<ActionResult<number>> {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return actionError(
+        "You must be logged in to view opponent hand count",
+        ERROR_CODES.AUTH_REQUIRED
+      );
+    }
+
+    const userId = parseInt(session.user.id);
+
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        players: true,
+      },
+    });
+
+    if (!game) {
+      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    const player = game.players.find((p) => p.userId === userId);
+
+    if (!player) {
+      return actionError(
+        "You are not a player in this game",
+        ERROR_CODES.AUTH_REQUIRED
+      );
+    }
+
+    const opponent = game.players.find((p) => p.userId !== userId);
+    const opponentHandCount = opponent
+      ? parseCardIdArray(opponent.hand).length
+      : 0;
+
+    return actionSuccess(opponentHandCount);
+  } catch (error) {
+    console.error("[getOpponentHandCount] unexpected error", error);
+    return actionError(
+      "Could not fetch opponent hand count",
+      ERROR_CODES.UNKNOWN_ERROR
+    );
   }
 }
 

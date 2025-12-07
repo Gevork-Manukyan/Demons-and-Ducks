@@ -18,8 +18,17 @@ import {
   getAvailableThreeInARows,
   scoreThreeInARow,
   endTurn,
+  type PendingEffect,
 } from "@/actions/game-actions";
-import { isActionSuccess, isActionError } from "@/lib/errors";
+import {
+  resolveDestroyEffect,
+  resolveRepelEffect,
+  resolveDisplaceEffect,
+  resolveSwapEffect,
+  resolveHypnotizeEffect,
+} from "@/actions/card-effect-actions";
+import type { AbilityType } from "@/lib/card-types";
+import { isActionSuccess, isActionError, type ActionResult } from "@/lib/errors";
 import type { GameState } from "@/actions/game-actions";
 import type { Card as CardType } from "@/lib/card-types";
 import { databaseFormatToGrid, createEmptyGrid, updateGridValidPositions } from "@/lib/game-field-utils";
@@ -62,12 +71,19 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
   const [selectedScoringCards, setSelectedScoringCards] = useState<Array<{row: number, col: number}>>([]);
   const [selectedHypnotizedCard, setSelectedHypnotizedCard] = useState<{row: number, col: number} | null>(null);
   const [selectedDiscardCards, setSelectedDiscardCards] = useState<number[]>([]);
+  const [pendingEffects, setPendingEffects] = useState<PendingEffect[]>([]);
+  const [selectedEffectTarget, setSelectedEffectTarget] = useState<{row: number, col: number} | null>(null);
+  const [selectedEffectTargets, setSelectedEffectTargets] = useState<Array<{row: number, col: number}>>([]);
+  const [displaceSource, setDisplaceSource] = useState<{row: number, col: number} | null>(null);
 
   const isMyTurn = currentPlayer && gameState.currentTurnPlayerId === currentPlayer.id;
   const currentPhase = gameState.currentPhase;
   const isAwakenPhase = currentPhase === "AWAKEN" && isMyTurn;
   const isActionPhase = currentPhase === "ACTION" && isMyTurn;
-  const canPlaceCreature = isActionPhase && !gameState.creatureCardPlayedThisTurn && gameState.magicCardsPlayedThisTurn === 0;
+  const canPlaceCreature = isActionPhase && (
+    (!gameState.creatureCardPlayedThisTurn && gameState.magicCardsPlayedThisTurn === 0) ||
+    (gameState.summonUsedThisTurn && gameState.creatureCardPlayedThisTurn)
+  );
   const canPlayMagic = isActionPhase && !gameState.creatureCardPlayedThisTurn && gameState.magicCardsPlayedThisTurn < 2;
 
   // Track last gameState object reference to detect stream updates
@@ -214,7 +230,14 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
 
     // Update local state only if server action succeeds
     setHand((currentHand) => currentHand.filter((_, index) => index !== cardIndex));
-    clearSelection();
+    
+    // Check for pending effects that need selection
+    if (isActionSuccess(result) && result.data.length > 0) {
+      setPendingEffects(result.data);
+      clearSelection();
+    } else {
+      clearSelection();
+    }
   };
 
   const handleCancelPlayCard = () => {
@@ -377,6 +400,121 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     }
   };
 
+  // Effect selection handlers
+  const handleEffectCardSelect = (row: number, col: number) => {
+    if (pendingEffects.length === 0) return;
+
+    const currentEffect = pendingEffects[0];
+    
+    if (currentEffect.type === "destroy" || currentEffect.type === "repel" || currentEffect.type === "hypnotize") {
+      // Single target selection
+      if (selectedEffectTarget?.row === row && selectedEffectTarget?.col === col) {
+        setSelectedEffectTarget(null);
+      } else {
+        setSelectedEffectTarget({ row, col });
+      }
+    } else if (currentEffect.type === "swap") {
+      // Two target selection
+      const isSelected = selectedEffectTargets.some(
+        (pos) => pos.row === row && pos.col === col
+      );
+      if (isSelected) {
+        setSelectedEffectTargets((current) =>
+          current.filter((pos) => !(pos.row === row && pos.col === col))
+        );
+      } else if (selectedEffectTargets.length < 2) {
+        setSelectedEffectTargets((current) => [...current, { row, col }]);
+      }
+    } else if (currentEffect.type === "displace") {
+      // Two-step: first select source, then target
+      if (!displaceSource) {
+        setDisplaceSource({ row, col });
+      } else {
+        setSelectedEffectTarget({ row, col });
+      }
+    }
+  };
+
+  const handleResolveEffect = async () => {
+    if (pendingEffects.length === 0) return;
+
+    const currentEffect = pendingEffects[0];
+    let result: ActionResult<void>;
+
+    if (currentEffect.type === "destroy") {
+      if (!selectedEffectTarget) return;
+      result = await resolveDestroyEffect(
+        gameId,
+        currentEffect.cardId,
+        selectedEffectTarget.row,
+        selectedEffectTarget.col
+      );
+    } else if (currentEffect.type === "repel") {
+      if (!selectedEffectTarget) return;
+      result = await resolveRepelEffect(
+        gameId,
+        currentEffect.cardId,
+        selectedEffectTarget.row,
+        selectedEffectTarget.col
+      );
+    } else if (currentEffect.type === "hypnotize") {
+      if (!selectedEffectTarget) return;
+      result = await resolveHypnotizeEffect(
+        gameId,
+        currentEffect.cardId,
+        selectedEffectTarget.row,
+        selectedEffectTarget.col
+      );
+    } else if (currentEffect.type === "swap") {
+      if (selectedEffectTargets.length !== 2) return;
+      result = await resolveSwapEffect(
+        gameId,
+        currentEffect.cardId,
+        selectedEffectTargets[0].row,
+        selectedEffectTargets[0].col,
+        selectedEffectTargets[1].row,
+        selectedEffectTargets[1].col
+      );
+    } else if (currentEffect.type === "displace") {
+      if (!displaceSource || !selectedEffectTarget) return;
+      result = await resolveDisplaceEffect(
+        gameId,
+        currentEffect.cardId,
+        displaceSource.row,
+        displaceSource.col,
+        selectedEffectTarget.row,
+        selectedEffectTarget.col
+      );
+    } else {
+      return;
+    }
+
+    if (isActionError(result)) {
+      console.error("Failed to resolve effect:", result.message);
+      return;
+    }
+
+    // Move to next effect or clear
+    const remainingEffects = pendingEffects.slice(1);
+    if (remainingEffects.length > 0) {
+      setPendingEffects(remainingEffects);
+    } else {
+      setPendingEffects([]);
+    }
+    setSelectedEffectTarget(null);
+    setSelectedEffectTargets([]);
+    setDisplaceSource(null);
+  };
+
+  const handleCancelEffect = () => {
+    setPendingEffects([]);
+    setSelectedEffectTarget(null);
+    setSelectedEffectTargets([]);
+    setDisplaceSource(null);
+  };
+
+  const currentPendingEffect = pendingEffects.length > 0 ? pendingEffects[0] : null;
+
   const getPhaseDisplayName = (phase: string | null) => {
     switch (phase) {
       case "DRAW": return "Draw Phase";
@@ -411,6 +549,12 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
           selectedHypnotizedCard={selectedHypnotizedCard}
           onHypnotizedCardSelect={handleHypnotizedCardSelect}
           canPlaceCreature={canPlaceCreature}
+          pendingEffectType={currentPendingEffect?.type || null}
+          selectedEffectTarget={selectedEffectTarget}
+          selectedEffectTargets={selectedEffectTargets}
+          displaceSource={displaceSource}
+          onEffectCardSelect={handleEffectCardSelect}
+          currentPlayerId={currentPlayer?.id || null}
         />
       </div>
 
@@ -518,24 +662,132 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
 
                 {currentPhase === "ACTION" && (
                   <div className="space-y-2">
-                    {gameState.magicCardsPlayedThisTurn === 0 && !gameState.creatureCardPlayedThisTurn && (
-                      <Button onClick={handleDrawCardInAction} className="w-full" variant="outline">
-                        Draw Card
-                      </Button>
-                    )}
-                    {gameState.magicCardsPlayedThisTurn > 0 && (
-                      <div className="text-sm text-gray-600 p-2 bg-yellow-50 rounded">
-                        Magic card played. You can only play another magic card or end the phase.
+                    {currentPendingEffect ? (
+                      <div className="space-y-2">
+                        <div className="text-sm font-semibold p-2 bg-purple-50 rounded">
+                          Resolve Effect: {currentPendingEffect.type}
+                        </div>
+                        {currentPendingEffect.type === "destroy" && (
+                          <>
+                            {selectedEffectTarget && (
+                              <div className="text-xs p-2 bg-red-50 rounded">
+                                Target: Row {selectedEffectTarget.row}, Col {selectedEffectTarget.col}
+                              </div>
+                            )}
+                            <div className="text-xs text-gray-600">
+                              Select an opponent creature to destroy
+                            </div>
+                            {selectedEffectTarget && (
+                              <Button onClick={handleResolveEffect} className="w-full">
+                                Destroy Card
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        {currentPendingEffect.type === "repel" && (
+                          <>
+                            {selectedEffectTarget && (
+                              <div className="text-xs p-2 bg-blue-50 rounded">
+                                Target: Row {selectedEffectTarget.row}, Col {selectedEffectTarget.col}
+                              </div>
+                            )}
+                            <div className="text-xs text-gray-600">
+                              Select a creature to return to its owner&apos;s hand
+                            </div>
+                            {selectedEffectTarget && (
+                              <Button onClick={handleResolveEffect} className="w-full">
+                                Repel Card
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        {currentPendingEffect.type === "hypnotize" && (
+                          <>
+                            {selectedEffectTarget && (
+                              <div className="text-xs p-2 bg-purple-50 rounded">
+                                Target: Row {selectedEffectTarget.row}, Col {selectedEffectTarget.col}
+                              </div>
+                            )}
+                            <div className="text-xs text-gray-600">
+                              Select a creature to hypnotize
+                            </div>
+                            {selectedEffectTarget && (
+                              <Button onClick={handleResolveEffect} className="w-full">
+                                Hypnotize Card
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        {currentPendingEffect.type === "swap" && (
+                          <>
+                            {selectedEffectTargets.length > 0 && (
+                              <div className="text-xs p-2 bg-green-50 rounded">
+                                Selected: {selectedEffectTargets.map((pos, i) => 
+                                  `(${pos.row},${pos.col})${i < selectedEffectTargets.length - 1 ? ', ' : ''}`
+                                ).join('')} ({selectedEffectTargets.length}/2)
+                              </div>
+                            )}
+                            <div className="text-xs text-gray-600">
+                              Select two creatures to swap positions
+                            </div>
+                            {selectedEffectTargets.length === 2 && (
+                              <Button onClick={handleResolveEffect} className="w-full">
+                                Swap Cards
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        {currentPendingEffect.type === "displace" && (
+                          <>
+                            {displaceSource && (
+                              <div className="text-xs p-2 bg-yellow-50 rounded">
+                                Source: Row {displaceSource.row}, Col {displaceSource.col}
+                              </div>
+                            )}
+                            {selectedEffectTarget && (
+                              <div className="text-xs p-2 bg-blue-50 rounded">
+                                Target: Row {selectedEffectTarget.row}, Col {selectedEffectTarget.col}
+                              </div>
+                            )}
+                            <div className="text-xs text-gray-600">
+                              {!displaceSource 
+                                ? "Select a creature to move"
+                                : "Select an empty space to move to"
+                              }
+                            </div>
+                            {displaceSource && selectedEffectTarget && (
+                              <Button onClick={handleResolveEffect} className="w-full">
+                                Displace Card
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        <Button onClick={handleCancelEffect} className="w-full" variant="outline">
+                          Cancel Effect
+                        </Button>
                       </div>
+                    ) : (
+                      <>
+                        {gameState.magicCardsPlayedThisTurn === 0 && !gameState.creatureCardPlayedThisTurn && (
+                          <Button onClick={handleDrawCardInAction} className="w-full" variant="outline">
+                            Draw Card
+                          </Button>
+                        )}
+                        {gameState.magicCardsPlayedThisTurn > 0 && (
+                          <div className="text-sm text-gray-600 p-2 bg-yellow-50 rounded">
+                            Magic card played. You can only play another magic card or end the phase.
+                          </div>
+                        )}
+                        {gameState.creatureCardPlayedThisTurn && (
+                          <div className="text-sm text-gray-600 p-2 bg-blue-50 rounded">
+                            Creature card played. Phase will advance automatically.
+                          </div>
+                        )}
+                        <Button onClick={handleEndActionPhase} className="w-full" variant="outline">
+                          End Action Phase
+                        </Button>
+                      </>
                     )}
-                    {gameState.creatureCardPlayedThisTurn && (
-                      <div className="text-sm text-gray-600 p-2 bg-blue-50 rounded">
-                        Creature card played. Phase will advance automatically.
-                      </div>
-                    )}
-                    <Button onClick={handleEndActionPhase} className="w-full" variant="outline">
-                      End Action Phase
-                    </Button>
                   </div>
                 )}
 

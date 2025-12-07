@@ -38,6 +38,9 @@ export default async function GamePage({ params }: GamePageProps) {
       currentPhase: true,
       currentTurnPlayerId: true,
       cardGrid: true,
+      creatureCardPlayedThisTurn: true,
+      magicCardsPlayedThisTurn: true,
+      summonUsedThisTurn: true,
       players: {
         select: {
           id: true,
@@ -124,6 +127,9 @@ export default async function GamePage({ params }: GamePageProps) {
               playerId: p.id,
               points: p.currentPoints,
             })),
+            creatureCardPlayedThisTurn: game.creatureCardPlayedThisTurn,
+            magicCardsPlayedThisTurn: game.magicCardsPlayedThisTurn,
+            summonUsedThisTurn: game.summonUsedThisTurn,
           }}
           currentUserId={userId}
           initialHand={initialHand}

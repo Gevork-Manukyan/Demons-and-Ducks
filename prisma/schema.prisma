@@ -79,6 +79,7 @@ model Game {
   hasUsedAwaken          Boolean  @default(false)
   magicCardsPlayedThisTurn Int    @default(0)
   creatureCardPlayedThisTurn Boolean @default(false)
+  summonUsedThisTurn     Boolean  @default(false)
   players                Player[]
 }
 

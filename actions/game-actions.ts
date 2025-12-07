@@ -12,7 +12,8 @@ import {
 } from "@/lib/errors";
 import { ERROR_CODES } from "@/lib/error-codes";
 import { initializeGame } from "@/lib/game-initialization";
-import { parseCardIdArray, safeParseCardGrid } from "@/lib/zod-schemas";
+import { parseCardIdArray, safeParseCardGrid, parseCardEffect } from "@/lib/zod-schemas";
+import type { AbilityType } from "@/lib/card-types";
 import { convertPrismaCardToCardType, calculateOpponentHandCount, convertCardRecordsToHand } from "@/lib/card-utils";
 import type { Card } from "@/lib/card-types";
 import {
@@ -39,53 +40,9 @@ import {
   createPlayerIdMap,
 } from "@/lib/scoring-utils";
 import type { Player, Game } from "@prisma/client";
-
-type GamePlayerData = {
-  game: Game & { players: Player[] };
-  player: Player;
-  userId: number;
-};
+import { getGameAndPlayer } from "@/lib/game-action-utils";
 
 type GameWithPlayers = Game & { players: Player[] };
-
-/**
- * Helper function to authenticate user and get game/player data
- * Returns an error ActionResult if validation fails, otherwise returns the data
- */
-async function getGameAndPlayer(
-  gameId: number,
-  authErrorMessage: string = "You must be logged in"
-): Promise<ActionResult<GamePlayerData>> {
-  const session = await getServerSession(authOptions);
-
-  if (!session?.user?.id) {
-    return actionError(authErrorMessage, ERROR_CODES.AUTH_REQUIRED);
-  }
-
-  const userId = parseInt(session.user.id);
-
-  const game = await prisma.game.findUnique({
-    where: { id: gameId },
-    include: {
-      players: true,
-    },
-  });
-
-  if (!game) {
-    return actionError("Game not found", ERROR_CODES.NOT_FOUND);
-  }
-
-  const player = game.players.find((p) => p.userId === userId);
-
-  if (!player) {
-    return actionError(
-      "You are not a player in this game",
-      ERROR_CODES.AUTH_REQUIRED
-    );
-  }
-
-  return actionSuccess({ game, player, userId });
-}
 
 type CreateGameData = {
   gameCode: string;
@@ -162,6 +119,7 @@ export type GameState = {
   playerScores: Array<{ playerId: number; points: number }>;
   creatureCardPlayedThisTurn: boolean;
   magicCardsPlayedThisTurn: number;
+  summonUsedThisTurn: boolean;
 };
 
 export async function getGameState(
@@ -233,6 +191,7 @@ export async function getGameState(
       })),
       creatureCardPlayedThisTurn: game.creatureCardPlayedThisTurn,
       magicCardsPlayedThisTurn: game.magicCardsPlayedThisTurn,
+      summonUsedThisTurn: game.summonUsedThisTurn,
     });
   } catch (error) {
     console.error("[getGameState] unexpected error", error);
@@ -518,6 +477,7 @@ export async function markPlayerReady(
       })),
       creatureCardPlayedThisTurn: updatedGame.creatureCardPlayedThisTurn,
       magicCardsPlayedThisTurn: updatedGame.magicCardsPlayedThisTurn,
+      summonUsedThisTurn: updatedGame.summonUsedThisTurn,
     });
   } catch (error) {
     console.error("[markPlayerReady] unexpected error", error);
@@ -579,14 +539,17 @@ export async function placeCardOnField(
     }
 
     // Validate creature card restrictions
-    if (game.creatureCardPlayedThisTurn) {
+    // If summon was used, allow placing basic creature even if creature already played
+    const isSummonPlacement = game.summonUsedThisTurn && game.creatureCardPlayedThisTurn;
+    
+    if (game.creatureCardPlayedThisTurn && !isSummonPlacement) {
       return actionError(
         "You can only play one creature card per turn",
         ERROR_CODES.VALIDATION_ERROR
       );
     }
 
-    if (game.magicCardsPlayedThisTurn > 0) {
+    if (game.magicCardsPlayedThisTurn > 0 && !isSummonPlacement) {
       return actionError(
         "Cannot play creature card after playing magic cards",
         ERROR_CODES.VALIDATION_ERROR
@@ -649,6 +612,16 @@ export async function placeCardOnField(
     }
 
     const cardToPlace = convertPrismaCardToCardType(cardRecord);
+
+    // If using summon, validate that the card is a basic creature
+    if (isSummonPlacement) {
+      if (cardToPlace.type !== "creature" || !cardToPlace.isBasic) {
+        return actionError(
+          "Summon ability only allows placing basic creature cards",
+          ERROR_CODES.VALIDATION_ERROR
+        );
+      }
+    }
 
     const updatedGrid = placeCardOnGrid(
       currentGrid,
@@ -769,10 +742,15 @@ export async function updateCardHypnotizedState(
   }
 }
 
+export type PendingEffect = {
+  type: AbilityType;
+  cardId: number;
+};
+
 export async function playMagicOrInstantCard(
   gameId: number,
   cardId: number
-): Promise<ActionResult<void>> {
+): Promise<ActionResult<PendingEffect[]>> {
   try {
     const result = await getGameAndPlayer(
       gameId,
@@ -836,7 +814,51 @@ export async function playMagicOrInstantCard(
     const discardCardIds = parseCardIdArray(player.discardPile);
     const updatedDiscardPile = [...discardCardIds, cardId];
 
+    // Parse effects
+    const effects = parseCardEffect(cardRecord.effect);
+
+    // Process immediate effects
+    let totalDrawCount = 0;
+    let hasSummon = false;
+    const pendingEffects: PendingEffect[] = [];
+
+    for (const effect of effects) {
+      if (effect === "draw1") {
+        totalDrawCount += 1;
+      } else if (effect === "draw2") {
+        totalDrawCount += 2;
+      } else if (effect === "draw3") {
+        totalDrawCount += 3;
+      } else if (effect === "summon") {
+        hasSummon = true;
+      } else if (effect === "destroy" || effect === "repel" || effect === "displace" || effect === "swap" || effect === "hypnotize") {
+        // Effects requiring selection
+        pendingEffects.push({ type: effect, cardId });
+      }
+      // TODO: negate is skipped for now
+    }
+
+    // Draw cards if needed
+    if (totalDrawCount > 0) {
+      const drawResult = await drawCardsForPlayer(player.id, totalDrawCount);
+      if (drawResult.error) {
+        return drawResult;
+      }
+    }
+
     const newMagicCardsPlayed = game.magicCardsPlayedThisTurn + 1;
+    // const updateData: any = {
+    //   magicCardsPlayedThisTurn: newMagicCardsPlayed,
+    // };
+
+    // if (hasSummon) {
+    //   updateData.summonUsedThisTurn = true;
+    // }
+
+    const updateData = {
+      magicCardsPlayedThisTurn: newMagicCardsPlayed,
+      summonUsedThisTurn: hasSummon ? true : game.summonUsedThisTurn,
+    };
 
     // Update player and game in transaction
     await prisma.$transaction([
@@ -849,9 +871,7 @@ export async function playMagicOrInstantCard(
       }),
       prisma.game.update({
         where: { id: gameId },
-        data: {
-          magicCardsPlayedThisTurn: newMagicCardsPlayed,
-        },
+        data: updateData,
       }),
     ]);
 
@@ -861,10 +881,15 @@ export async function playMagicOrInstantCard(
       if (refetchResult.error) {
         return refetchResult;
       }
-      return await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
+      const advanceResult = await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
+      if (advanceResult.error) {
+        return advanceResult;
+      }
+      // Return pending effects even if phase advanced
+      return actionSuccess(pendingEffects);
     }
 
-    return actionSuccess(undefined);
+    return actionSuccess(pendingEffects);
   } catch (error) {
     console.error("[playMagicOrInstantCard] unexpected error", error);
     return actionError(
@@ -1029,6 +1054,7 @@ async function endTurnInternal(
       hasUsedAwaken: false,
       magicCardsPlayedThisTurn: 0,
       creatureCardPlayedThisTurn: false,
+      summonUsedThisTurn: false,
     },
   });
 
@@ -1097,9 +1123,55 @@ export async function endTurn(gameId: number): Promise<ActionResult<void>> {
 }
 
 /**
+ * Helper function to draw N cards for a player
+ */
+async function drawCardsForPlayer(
+  playerId: number,
+  count: number
+): Promise<ActionResult<void>> {
+  try {
+    const player = await prisma.player.findUnique({
+      where: { id: playerId },
+    });
+
+    if (!player) {
+      return actionError("Player not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    const deckCardIds = parseCardIdArray(player.deck);
+    const handCardIds = parseCardIdArray(player.hand);
+
+    if (deckCardIds.length === 0) {
+      return actionSuccess(undefined);
+    }
+
+    const cardsToDraw = Math.min(count, deckCardIds.length);
+    const drawnCardIds = deckCardIds.slice(0, cardsToDraw);
+    const updatedDeck = deckCardIds.slice(cardsToDraw);
+    const updatedHand = [...handCardIds, ...drawnCardIds];
+
+    await prisma.player.update({
+      where: { id: playerId },
+      data: {
+        deck: updatedDeck,
+        hand: updatedHand,
+      },
+    });
+
+    return actionSuccess(undefined);
+  } catch (error) {
+    console.error("[drawCardsForPlayer] unexpected error", error);
+    return actionError("Could not draw cards", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+/**
  * Draw a card in the DRAW phase
  */
-export async function drawCard(gameId: number): Promise<ActionResult<void>> {
+export async function drawCard(
+  gameId: number,
+  count: number = 1
+): Promise<ActionResult<void>> {
   try {
     const result = await getGameAndPlayer(
       gameId,
@@ -1120,22 +1192,10 @@ export async function drawCard(gameId: number): Promise<ActionResult<void>> {
       );
     }
 
-    // Draw one card from deck
-    const deckCardIds = parseCardIdArray(player.deck);
-    const handCardIds = parseCardIdArray(player.hand);
-
-    if (deckCardIds.length > 0) {
-      const drawnCardId = deckCardIds[0];
-      const updatedDeck = deckCardIds.slice(1);
-      const updatedHand = [...handCardIds, drawnCardId];
-
-      await prisma.player.update({
-        where: { id: player.id },
-        data: {
-          deck: updatedDeck,
-          hand: updatedHand,
-        },
-      });
+    // Draw cards
+    const drawResult = await drawCardsForPlayer(player.id, count);
+    if (drawResult.error) {
+      return drawResult;
     }
 
     // Refetch game and player to get updated data before advancing phase
@@ -1316,7 +1376,8 @@ export async function skipAwaken(
  * Draw a card in the ACTION phase
  */
 export async function drawCardInActionPhase(
-  gameId: number
+  gameId: number,
+  count: number = 1
 ): Promise<ActionResult<void>> {
   try {
     const result = await getGameAndPlayer(
@@ -1338,22 +1399,10 @@ export async function drawCardInActionPhase(
       );
     }
 
-    // Draw one card from deck
-    const deckCardIds = parseCardIdArray(player.deck);
-    const handCardIds = parseCardIdArray(player.hand);
-
-    if (deckCardIds.length > 0) {
-      const drawnCardId = deckCardIds[0];
-      const updatedDeck = deckCardIds.slice(1);
-      const updatedHand = [...handCardIds, drawnCardId];
-
-      await prisma.player.update({
-        where: { id: player.id },
-        data: {
-          deck: updatedDeck,
-          hand: updatedHand,
-        },
-      });
+    // Draw cards
+    const drawResult = await drawCardsForPlayer(player.id, count);
+    if (drawResult.error) {
+      return drawResult;
     }
 
     // Refetch game and player to get updated data before advancing phase

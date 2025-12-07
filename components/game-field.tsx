@@ -21,6 +21,12 @@ type GameFieldProps = {
   selectedHypnotizedCard?: { row: number; col: number } | null;
   onHypnotizedCardSelect?: (row: number, col: number) => void;
   canPlaceCreature?: boolean;
+  pendingEffectType?: string | null;
+  selectedEffectTarget?: { row: number; col: number } | null;
+  selectedEffectTargets?: Array<{ row: number; col: number }>;
+  displaceSource?: { row: number; col: number } | null;
+  onEffectCardSelect?: (row: number, col: number) => void;
+  currentPlayerId?: number | null;
 };
 
 export function GameField({ 
@@ -35,6 +41,12 @@ export function GameField({
   selectedHypnotizedCard = null,
   onHypnotizedCardSelect,
   canPlaceCreature = true,
+  pendingEffectType = null,
+  selectedEffectTarget = null,
+  selectedEffectTargets = [],
+  displaceSource = null,
+  onEffectCardSelect,
+  currentPlayerId = null,
 }: GameFieldProps) {
 
   // Update grid valid positions
@@ -92,18 +104,20 @@ export function GameField({
     }
     
     // Show positions if they have a card OR if they are valid for placement (only if creature card is selected and placement is allowed)
+    // Also show empty spaces if displace effect is active and source is selected
     const canPlaceCard = !isScoringPhase && !isAwakenPhase && canPlaceCreature && selectedCard !== null && selectedCard.type === "creature";
+    const showEmptyForDisplace = pendingEffectType === "displace" && displaceSource;
     
     for (let row = 0; row < 5; row++) {
       for (let col = 0; col < 5; col++) {
         const cell = updatedGrid[row][col];
-        if (cell.card !== null || (cell.isValid && canPlaceCard)) {
+        if (cell.card !== null || (cell.isValid && canPlaceCard) || (showEmptyForDisplace && cell.card === null)) {
           positions.push({ row, col, cell });
         }
       }
     }
     return positions;
-  }, [updatedGrid, selectedCard, isScoringPhase, isAwakenPhase, canPlaceCreature]);
+  }, [updatedGrid, selectedCard, isScoringPhase, isAwakenPhase, canPlaceCreature, pendingEffectType, displaceSource]);
 
   // Card dimensions and gap for positioning (in pixels)
   const cardWidth = 120;
@@ -185,6 +199,20 @@ export function GameField({
             const isValidForScoring = isPositionValidForScoring(row, col);
             const isSelectedForScoring = isPositionSelectedForScoring(row, col);
             
+            // Effect selection highlighting
+            const isEffectSelected = selectedEffectTarget?.row === row && selectedEffectTarget?.col === col;
+            const isEffectTargetSelected = selectedEffectTargets.some(
+              (pos) => pos.row === row && pos.col === col
+            );
+            const isDisplaceSource = displaceSource?.row === row && displaceSource?.col === col;
+            const isSelectableForEffect = pendingEffectType && (
+              (pendingEffectType === "destroy" && cell.card && cell.playerId !== currentPlayerId) ||
+              (pendingEffectType === "repel" && cell.card) ||
+              (pendingEffectType === "hypnotize" && cell.card) ||
+              (pendingEffectType === "swap" && cell.card) ||
+              (pendingEffectType === "displace" && ((!displaceSource && cell.card) || (displaceSource && !cell.card)))
+            );
+            
             return (
               <div
                 key={`${row}-${col}`}
@@ -205,6 +233,10 @@ export function GameField({
                         ? selectedHypnotizedCard?.row === row && selectedHypnotizedCard?.col === col
                           ? "ring-4 ring-blue-500 cursor-pointer"
                           : "ring-2 ring-purple-400 cursor-pointer"
+                        : isSelectableForEffect
+                        ? isEffectSelected || isEffectTargetSelected || isDisplaceSource
+                          ? "ring-4 ring-red-500 cursor-pointer"
+                          : "ring-2 ring-orange-400 cursor-pointer"
                         : ""
                     }`}
                     onClick={() => {
@@ -212,6 +244,8 @@ export function GameField({
                         onScoringCardSelect(row, col);
                       } else if (isAwakenPhase && cell.hypnotized && onHypnotizedCardSelect) {
                         onHypnotizedCardSelect(row, col);
+                      } else if (pendingEffectType && onEffectCardSelect && isSelectableForEffect) {
+                        onEffectCardSelect(row, col);
                       }
                     }}
                   >
@@ -220,11 +254,13 @@ export function GameField({
                 ) : (
                   <EmptyCardSpace
                     onClick={() => {
-                      if (!isScoringPhase && !isAwakenPhase && canPlaceCreature && selectedCard && selectedCard.type === "creature") {
+                      if (pendingEffectType === "displace" && displaceSource && onEffectCardSelect) {
+                        onEffectCardSelect(row, col);
+                      } else if (!isScoringPhase && !isAwakenPhase && canPlaceCreature && selectedCard && selectedCard.type === "creature") {
                         onCardPlace(selectedCard, row, col);
                       }
                     }}
-                    disabled={isScoringPhase || isAwakenPhase || !canPlaceCreature || (selectedCard !== null && selectedCard.type !== "creature")}
+                    disabled={isScoringPhase || isAwakenPhase || (!canPlaceCreature && !(pendingEffectType === "displace" && displaceSource)) || (selectedCard !== null && selectedCard.type !== "creature" && !(pendingEffectType === "displace" && displaceSource))}
                   />
                 )}
               </div>

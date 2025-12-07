@@ -1,4 +1,5 @@
 import type { Card } from "@/lib/card-types";
+import { cardGridEntrySchema } from "@/lib/zod-schemas";
 
 export type GridPosition = {
   row: number;
@@ -9,6 +10,7 @@ export type GridCell = {
   card: Card | null;
   position: GridPosition;
   isValid: boolean;
+  hypnotized: boolean;
 };
 
 export type GameGrid = GridCell[][];
@@ -25,6 +27,7 @@ export function createEmptyGrid(): GameGrid {
         card: null,
         position: { row, col },
         isValid: false,
+        hypnotized: false,
       });
     }
     grid.push(rowCells);
@@ -150,6 +153,7 @@ export function placeCard(
         return {
           ...cell,
           card,
+          hypnotized: false,
         };
       }
       return {
@@ -159,5 +163,117 @@ export function placeCard(
   );
   
   return updateGridValidPositions(newGrid);
+}
+
+/**
+ * Database format for card grid (sparse array)
+ */
+export type DatabaseGridFormat = Array<{
+  cardId: number;
+  row: number;
+  col: number;
+  hypnotized: boolean;
+}> | null;
+
+/**
+ * Converts a GameGrid to database format (sparse array)
+ * Requires a function to get card ID from Card object
+ */
+export function gridToDatabaseFormat(
+  grid: GameGrid,
+  getCardId: (card: Card) => number
+): DatabaseGridFormat {
+  const entries: Array<{
+    cardId: number;
+    row: number;
+    col: number;
+    hypnotized: boolean;
+  }> = [];
+
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 5; col++) {
+      const cell = grid[row][col];
+      if (cell.card !== null) {
+        const cardId = getCardId(cell.card);
+        entries.push({
+          cardId,
+          row,
+          col,
+          hypnotized: cell.hypnotized,
+        });
+      }
+    }
+  }
+
+  return entries.length > 0 ? entries : null;
+}
+
+/**
+ * Converts database format back to GameGrid
+ * Requires a map from card ID to Card object
+ */
+export function databaseFormatToGrid(
+  data: unknown,
+  cardIdToCardMap: Map<number, Card>
+): GameGrid {
+  const grid = createEmptyGrid();
+
+  // If no data, return empty grid
+  if (!data || (Array.isArray(data) && data.length === 0)) {
+    return updateGridValidPositions(grid);
+  }
+
+  // Validate and parse the data
+  if (!Array.isArray(data)) {
+    throw new Error("Invalid grid data format: expected array");
+  }
+
+  // Place cards from database format
+  for (const entry of data) {
+    const validatedEntry = cardGridEntrySchema.parse(entry);
+    const { cardId, row, col, hypnotized } = validatedEntry;
+
+    const card = cardIdToCardMap.get(cardId);
+    if (!card) {
+      throw new Error(`Card with ID ${cardId} not found`);
+    }
+
+    grid[row][col] = {
+      card,
+      position: { row, col },
+      isValid: false, // Will be updated by updateGridValidPositions
+      hypnotized,
+    };
+  }
+
+  return updateGridValidPositions(grid);
+}
+
+/**
+ * Updates the hypnotized state of a card at a specific position
+ */
+export function updateCardHypnotized(
+  grid: GameGrid,
+  position: GridPosition,
+  hypnotized: boolean
+): GameGrid {
+  const newGrid: GameGrid = grid.map((row, rowIndex) =>
+    row.map((cell, colIndex) => {
+      if (rowIndex === position.row && colIndex === position.col) {
+        if (cell.card === null) {
+          throw new Error(
+            `Cannot update hypnotized state: no card at position (${position.row}, ${position.col})`
+          );
+        }
+        return {
+          ...cell,
+          hypnotized,
+        };
+      }
+      return cell;
+    })
+  );
+
+  return newGrid;
 }
 

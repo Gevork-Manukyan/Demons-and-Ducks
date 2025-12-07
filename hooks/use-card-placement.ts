@@ -6,6 +6,7 @@ import {
   createEmptyGrid,
   updateGridValidPositions,
   placeCard as placeCardOnGrid,
+  updateCardHypnotized,
   type GameGrid,
 } from "@/lib/game-field-utils";
 
@@ -15,11 +16,15 @@ type UseCardPlacementReturn = {
   selectCard: (card: Card | null) => void;
   placeCard: (card: Card, row: number, col: number) => void;
   clearSelection: () => void;
+  updateHypnotized: (row: number, col: number, hypnotized: boolean) => void;
 };
 
-export function useCardPlacement(): UseCardPlacementReturn {
+export function useCardPlacement(initialGrid?: GameGrid): UseCardPlacementReturn {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [grid, setGrid] = useState<GameGrid>(() => {
+    if (initialGrid) {
+      return initialGrid;
+    }
     const emptyGrid = createEmptyGrid();
     return updateGridValidPositions(emptyGrid);
   });
@@ -37,12 +42,17 @@ export function useCardPlacement(): UseCardPlacementReturn {
     setSelectedCard(null);
   }, []);
 
+  const updateHypnotized = useCallback((row: number, col: number, hypnotized: boolean) => {
+    setGrid((currentGrid) => updateCardHypnotized(currentGrid, { row, col }, hypnotized));
+  }, []);
+
   return {
     selectedCard,
     grid,
     selectCard,
     placeCard,
     clearSelection,
+    updateHypnotized,
   };
 }
 

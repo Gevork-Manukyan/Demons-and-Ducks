@@ -5,10 +5,11 @@ import { OpponentHand } from "@/components/opponent-hand";
 import { GameField } from "@/components/game-field";
 import { PlayerHand } from "@/components/player-hand";
 import { useCardPlacement } from "@/hooks/use-card-placement";
-import { getPlayerHand, getOpponentHandCount } from "@/actions/game-actions";
-import { isActionSuccess } from "@/lib/errors";
+import { getPlayerHand, getOpponentHandCount, getPlayerHandCardIds, placeCardOnField, updateCardHypnotizedState } from "@/actions/game-actions";
+import { isActionSuccess, isActionError } from "@/lib/errors";
 import type { GameState } from "@/actions/game-actions";
 import type { Card as CardType } from "@/lib/card-types";
+import type { GameGrid } from "@/lib/game-field-utils";
 
 type GameplayProps = {
   gameState: GameState;
@@ -16,14 +17,15 @@ type GameplayProps = {
   gameId: number;
   initialHand: CardType[];
   initialOpponentHandCount: number;
+  initialGrid?: GameGrid;
 };
 
-export function Gameplay({ gameState, currentUserId, gameId, initialHand, initialOpponentHandCount }: GameplayProps) {
+export function Gameplay({ gameState, currentUserId, gameId, initialHand, initialOpponentHandCount, initialGrid }: GameplayProps) {
   const opponent = gameState.players.find(
     (player) => player.userId !== currentUserId
   );
 
-  const { selectedCard, grid, selectCard, placeCard } = useCardPlacement();
+  const { selectedCard, grid, selectCard, placeCard, updateHypnotized } = useCardPlacement(initialGrid);
   const [hand, setHand] = useState<CardType[]>(initialHand);
   const [opponentHandCount, setOpponentHandCount] = useState<number>(initialOpponentHandCount);
 
@@ -53,21 +55,58 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     }
   }, [gameState.status, gameId, hand.length]);
 
-  const handleCardPlace = (card: CardType, row: number, col: number) => {
+  const handleCardPlace = async (card: CardType, row: number, col: number) => {
+    const cardIndex = hand.findIndex(
+      (c) =>
+        c.name === card.name &&
+        c.deck === card.deck &&
+        c.type === card.type &&
+        (c.type !== "creature" || 
+         (c.type === "creature" && card.type === "creature" && c.isBasic === card.isBasic))
+    );
+
+    if (cardIndex === -1) {
+      console.error("Card not found in hand");
+      return;
+    }
+
+    // Fetch hand card IDs to get the card ID for this card
+    const handIdsResult = await getPlayerHandCardIds(gameId);
+    if (!isActionSuccess(handIdsResult)) {
+      console.error("Failed to fetch hand card IDs:", handIdsResult.error);
+      return;
+    }
+
+    const handCardIds = handIdsResult.data;
+    if (cardIndex >= handCardIds.length) {
+      console.error("Card index out of bounds");
+      return;
+    }
+
+    const cardId = handCardIds[cardIndex];
+
+    // Call server action to place card
+    const result = await placeCardOnField(gameId, cardId, row, col);
     
-    setHand((currentHand) => {
-      const cardIndex = currentHand.findIndex(
-        (c) =>
-          c.name === card.name &&
-          c.deck === card.deck &&
-          c.type === card.type
-      );
-      if (cardIndex !== -1) {
-        placeCard(card, row, col);
-        return currentHand.filter((_, index) => index !== cardIndex);
-      }
-      return currentHand;
-    });
+    if (isActionError(result)) {
+      console.error("Failed to place card:", result.message);
+      return;
+    }
+
+    // Update local state only if server action succeeds
+    placeCard(card, row, col);
+    setHand((currentHand) => currentHand.filter((_, index) => index !== cardIndex));
+  };
+
+  const handleHypnotizedUpdate = async (row: number, col: number, hypnotized: boolean) => {
+    const result = await updateCardHypnotizedState(gameId, row, col, hypnotized);
+    
+    if (isActionError(result)) {
+      console.error("Failed to update hypnotized state:", result.message);
+      return;
+    }
+
+    updateHypnotized(row, col, hypnotized);
   };
 
   return (

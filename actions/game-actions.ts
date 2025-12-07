@@ -12,9 +12,66 @@ import {
 } from "@/lib/errors";
 import { ERROR_CODES } from "@/lib/error-codes";
 import { initializeGame } from "@/lib/game-initialization";
-import { parseCardIdArray } from "@/lib/zod-schemas";
+import { parseCardIdArray, safeParseCardGrid } from "@/lib/zod-schemas";
 import { convertPrismaCardToCardType } from "@/lib/card-utils";
 import type { Card } from "@/lib/card-types";
+import {
+  databaseFormatToGrid,
+  gridToDatabaseFormat,
+  getValidPlacementPositions,
+  placeCard as placeCardOnGrid,
+  updateCardHypnotized,
+  createEmptyGrid,
+  updateGridValidPositions,
+  type GameGrid,
+  type DatabaseGridFormat,
+} from "@/lib/game-field-utils";
+import type { Player, Game } from "@prisma/client";
+
+type GamePlayerData = {
+  game: Game & { players: Player[] };
+  player: Player;
+  userId: number;
+};
+
+/**
+ * Helper function to authenticate user and get game/player data
+ * Returns an error ActionResult if validation fails, otherwise returns the data
+ */
+async function getGameAndPlayer(
+  gameId: number,
+  authErrorMessage: string = "You must be logged in"
+): Promise<ActionResult<GamePlayerData>> {
+  const session = await getServerSession(authOptions);
+
+  if (!session?.user?.id) {
+    return actionError(authErrorMessage, ERROR_CODES.AUTH_REQUIRED);
+  }
+
+  const userId = parseInt(session.user.id);
+
+  const game = await prisma.game.findUnique({
+    where: { id: gameId },
+    include: {
+      players: true,
+    },
+  });
+
+  if (!game) {
+    return actionError("Game not found", ERROR_CODES.NOT_FOUND);
+  }
+
+  const player = game.players.find((p) => p.userId === userId);
+
+  if (!player) {
+    return actionError(
+      "You are not a player in this game",
+      ERROR_CODES.AUTH_REQUIRED
+    );
+  }
+
+  return actionSuccess({ game, player, userId });
+}
 
 type CreateGameData = {
   gameCode: string;
@@ -235,41 +292,43 @@ export async function joinGame(
   }
 }
 
+export async function getPlayerHandCardIds(
+  gameId: number
+): Promise<ActionResult<number[]>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to view your hand"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { player } = result.data;
+    const handCardIds = parseCardIdArray(player.hand);
+
+    return actionSuccess(handCardIds);
+  } catch (error) {
+    console.error("[getPlayerHandCardIds] unexpected error", error);
+    return actionError("Could not fetch player hand card IDs", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
 export async function getPlayerHand(
   gameId: number
 ): Promise<ActionResult<Card[]>> {
   try {
-    const session = await getServerSession(authOptions);
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to view your hand"
+    );
 
-    if (!session?.user?.id) {
-      return actionError(
-        "You must be logged in to view your hand",
-        ERROR_CODES.AUTH_REQUIRED
-      );
+    if (result.error) {
+      return result;
     }
 
-    const userId = parseInt(session.user.id);
-
-    const game = await prisma.game.findUnique({
-      where: { id: gameId },
-      include: {
-        players: true,
-      },
-    });
-
-    if (!game) {
-      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
-    }
-
-    const player = game.players.find((p) => p.userId === userId);
-
-    if (!player) {
-      return actionError(
-        "You are not a player in this game",
-        ERROR_CODES.AUTH_REQUIRED
-      );
-    }
-
+    const { player } = result.data;
     const handCardIds = parseCardIdArray(player.hand);
 
     if (handCardIds.length === 0) {
@@ -293,37 +352,16 @@ export async function getOpponentHandCount(
   gameId: number
 ): Promise<ActionResult<number>> {
   try {
-    const session = await getServerSession(authOptions);
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to view opponent hand count"
+    );
 
-    if (!session?.user?.id) {
-      return actionError(
-        "You must be logged in to view opponent hand count",
-        ERROR_CODES.AUTH_REQUIRED
-      );
+    if (result.error) {
+      return result;
     }
 
-    const userId = parseInt(session.user.id);
-
-    const game = await prisma.game.findUnique({
-      where: { id: gameId },
-      include: {
-        players: true,
-      },
-    });
-
-    if (!game) {
-      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
-    }
-
-    const player = game.players.find((p) => p.userId === userId);
-
-    if (!player) {
-      return actionError(
-        "You are not a player in this game",
-        ERROR_CODES.AUTH_REQUIRED
-      );
-    }
-
+    const { game, userId } = result.data;
     const opponent = game.players.find((p) => p.userId !== userId);
     const opponentHandCount = opponent
       ? parseCardIdArray(opponent.hand).length
@@ -441,6 +479,255 @@ export async function markPlayerReady(
     console.error("[markPlayerReady] unexpected error", error);
     return actionError(
       "Could not update ready status",
+      ERROR_CODES.UNKNOWN_ERROR
+    );
+  }
+}
+
+/**
+ * Helper function to create a cardId to Card map from grid data
+ * Optionally includes additional card IDs (e.g., for a card being placed)
+ */
+export async function createCardIdToCardMap(
+  gridData: Array<{ cardId: number; row: number; col: number; hypnotized: boolean }>,
+  additionalCardIds: number[] = []
+): Promise<Map<number, Card>> {
+  const gridCardIds = gridData.map((entry) => entry.cardId);
+  const allCardIds = [...new Set([...gridCardIds, ...additionalCardIds])];
+
+  const cardRecords = await prisma.card.findMany({
+    where: { id: { in: allCardIds } },
+  });
+
+  const cardIdToCardMap = new Map<number, Card>();
+  for (const cardRecord of cardRecords) {
+    const card = convertPrismaCardToCardType(cardRecord);
+    cardIdToCardMap.set(cardRecord.id, card);
+  }
+
+  return cardIdToCardMap;
+}
+
+/**
+ * Helper function to collect all cards from a GameGrid
+ */
+function collectCardsFromGrid(grid: GameGrid): Card[] {
+  const cards: Card[] = [];
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 5; c++) {
+      if (grid[r][c].card !== null) {
+        cards.push(grid[r][c].card!);
+      }
+    }
+  }
+  return cards;
+}
+
+/**
+ * Helper function to convert a GameGrid to database format
+ * Handles card ID mapping and conversion
+ */
+async function gridToDatabaseFormatWithMapping(
+  grid: GameGrid
+): Promise<DatabaseGridFormat> {
+  const allCardsInGrid = collectCardsFromGrid(grid);
+  const cardToIdMap = await createCardToIdMap(allCardsInGrid);
+  return gridToDatabaseFormat(grid, (card) => cardToIdMap.get(card)!);
+}
+
+/**
+ * Helper function to create a map from Card to cardId by matching properties
+ */
+async function createCardToIdMap(
+  cards: Card[]
+): Promise<Map<Card, number>> {
+  const cardMap = new Map<Card, number>();
+
+  const allCards = await prisma.card.findMany();
+
+  for (const card of cards) {
+    const matchingCard = allCards.find(
+      (dbCard) =>
+        dbCard.name === card.name &&
+        dbCard.deck === card.deck &&
+        dbCard.type === card.type &&
+        (card.type !== "creature" || dbCard.isBasic === card.isBasic)
+    );
+
+    if (matchingCard) {
+      cardMap.set(card, matchingCard.id);
+    }
+  }
+
+  return cardMap;
+}
+
+export async function placeCardOnField(
+  gameId: number,
+  cardId: number,
+  row: number,
+  col: number
+): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to place a card"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Verify the card is in the player's hand
+    const handCardIds = parseCardIdArray(player.hand);
+    if (!handCardIds.includes(cardId)) {
+      return actionError(
+        "Card is not in your hand",
+        ERROR_CODES.UNAUTHORIZED
+      );
+    }
+
+    // Validate position
+    if (row < 0 || row >= 5 || col < 0 || col >= 5) {
+      return actionError(
+        "Invalid position",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    // Load current grid from database
+    const gridData = safeParseCardGrid(game.cardGrid);
+    let currentGrid: GameGrid;
+
+    if (gridData && gridData.length > 0) {
+      const cardIdToCardMap = await createCardIdToCardMap(gridData, [cardId]);
+      currentGrid = databaseFormatToGrid(gridData, cardIdToCardMap);
+    } else {
+      currentGrid = updateGridValidPositions(createEmptyGrid());
+    }
+
+    const validPositions = getValidPlacementPositions(currentGrid);
+    const isValidPosition = validPositions.some(
+      (pos) => pos.row === row && pos.col === col
+    );
+
+    if (!isValidPosition) {
+      return actionError(
+        "Invalid placement position",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    const cardRecord = await prisma.card.findUnique({
+      where: { id: cardId },
+    });
+
+    if (!cardRecord) {
+      return actionError("Card not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    const cardToPlace = convertPrismaCardToCardType(cardRecord);
+
+    const updatedGrid = placeCardOnGrid(
+      currentGrid,
+      { row, col },
+      cardToPlace
+    );
+
+    const updatedGridData = await gridToDatabaseFormatWithMapping(updatedGrid);
+    const updatedHand = handCardIds.filter((id) => id !== cardId);
+
+    // Update game and player in a transaction
+    await prisma.$transaction([
+      prisma.game.update({
+        where: { id: gameId },
+        data: { cardGrid: updatedGridData === null ? undefined : updatedGridData },
+      }),
+      prisma.player.update({
+        where: { id: player.id },
+        data: { hand: updatedHand },
+      }),
+    ]);
+
+    return actionSuccess(undefined);
+  } catch (error) {
+    console.error("[placeCardOnField] unexpected error", error);
+    return actionError(
+      "Could not place card on field",
+      ERROR_CODES.UNKNOWN_ERROR
+    );
+  }
+}
+
+export async function updateCardHypnotizedState(
+  gameId: number,
+  row: number,
+  col: number,
+  hypnotized: boolean
+): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to update card state"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game } = result.data;
+
+    // Validate position
+    if (row < 0 || row >= 5 || col < 0 || col >= 5) {
+      return actionError(
+        "Invalid position",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    // Load current grid from database
+    const gridData = safeParseCardGrid(game.cardGrid);
+
+    if (!gridData || gridData.length === 0) {
+      return actionError(
+        "No cards on the field",
+        ERROR_CODES.NOT_FOUND
+      );
+    }
+
+    const cardIdToCardMap = await createCardIdToCardMap(gridData);
+    const currentGrid = databaseFormatToGrid(gridData, cardIdToCardMap);
+
+    // Check if there's a card at the position
+    if (currentGrid[row][col].card === null) {
+      return actionError(
+        "No card at the specified position",
+        ERROR_CODES.NOT_FOUND
+      );
+    }
+
+    // Update hypnotized state
+    const updatedGrid = updateCardHypnotized(
+      currentGrid,
+      { row, col },
+      hypnotized
+    );
+
+    const updatedGridData = await gridToDatabaseFormatWithMapping(updatedGrid);
+
+    // Update game
+    await prisma.game.update({
+      where: { id: gameId },
+      data: { cardGrid: updatedGridData === null ? undefined : updatedGridData },
+    });
+
+    return actionSuccess(undefined);
+  } catch (error) {
+    console.error("[updateCardHypnotizedState] unexpected error", error);
+    return actionError(
+      "Could not update card hypnotized state",
       ERROR_CODES.UNKNOWN_ERROR
     );
   }

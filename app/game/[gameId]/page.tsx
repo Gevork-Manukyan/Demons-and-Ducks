@@ -6,8 +6,11 @@ import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { GameClient } from "./game-client";
 import { convertPrismaCardToCardType } from "@/lib/card-utils";
-import { parseCardIdArray } from "@/lib/zod-schemas";
+import { parseCardIdArray, safeParseCardGrid } from "@/lib/zod-schemas";
+import { databaseFormatToGrid } from "@/lib/game-field-utils";
+import { createCardIdToCardMap } from "@/actions/game-actions";
 import type { Card } from "@/lib/card-types";
+import type { GameGrid } from "@/lib/game-field-utils";
 
 type GamePageProps = {
   params: Promise<{ gameId: string }>;
@@ -70,6 +73,15 @@ export default async function GamePage({ params }: GamePageProps) {
   const opponent = game.players.find((p) => p.userId !== userId);
   const opponentHandCount = opponent ? parseCardIdArray(opponent.hand).length : 0;
 
+  // Load grid from database
+  let initialGrid: GameGrid | undefined = undefined;
+  const gridData = safeParseCardGrid(game.cardGrid);
+  
+  if (gridData && gridData.length > 0) {
+    const cardIdToCardMap = await createCardIdToCardMap(gridData);
+    initialGrid = databaseFormatToGrid(gridData, cardIdToCardMap);
+  }
+
   return (
     <div className="flex h-screen flex-col">
       {/* Minimal Header */}
@@ -100,6 +112,7 @@ export default async function GamePage({ params }: GamePageProps) {
           currentUserId={userId}
           initialHand={initialHand}
           initialOpponentHandCount={opponentHandCount}
+          initialGrid={initialGrid}
         />
       </main>
     </div>

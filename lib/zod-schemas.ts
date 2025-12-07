@@ -70,9 +70,14 @@ export const cardSchema = z.discriminatedUnion("type", [
   instantCardSchema,
 ]);
 
-// CardGrid schema (flexible - can be refined later)
-// For now, allowing any JSON structure since grid format may vary
-export const cardGridSchema = z.any().nullable().optional();
+export const cardGridEntrySchema = z.object({
+  cardId: z.number().int().positive(),
+  row: z.number().int().min(0).max(4),
+  col: z.number().int().min(0).max(4),
+  hypnotized: z.boolean(),
+});
+
+export const cardGridSchema = z.array(cardGridEntrySchema).nullable().optional();
 
 // Helper functions that throw on invalid data
 export function parseCardIdArray(data: unknown): number[] {
@@ -97,5 +102,14 @@ export function parseCardEffect(data: unknown): z.infer<typeof cardEffectSchema>
 
 export function parseCard(data: unknown) {
   return cardSchema.parse(data);
+}
+
+export function parseCardGrid(data: unknown): z.infer<typeof cardGridSchema> {
+  return cardGridSchema.parse(data);
+}
+
+export function safeParseCardGrid(data: unknown): z.infer<typeof cardGridSchema> {
+  const result = cardGridSchema.safeParse(data);
+  return result.success ? result.data : null;
 }
 

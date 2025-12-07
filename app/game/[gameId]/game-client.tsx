@@ -7,6 +7,7 @@ import { useGameUpdates } from "@/hooks/use-game-updates";
 import { markPlayerReady } from "@/actions/game-actions";
 import type { GameState } from "@/actions/game-actions";
 import type { Card } from "@/lib/card-types";
+import type { GameGrid } from "@/lib/game-field-utils";
 
 type GameClientProps = {
   gameId: number;
@@ -14,6 +15,7 @@ type GameClientProps = {
   currentUserId: number;
   initialHand: Card[];
   initialOpponentHandCount: number;
+  initialGrid?: GameGrid;
 };
 
 export function GameClient({
@@ -22,6 +24,7 @@ export function GameClient({
   currentUserId,
   initialHand,
   initialOpponentHandCount,
+  initialGrid,
 }: GameClientProps) {
   const { gameState, isConnected, error } = useGameUpdates(gameId);
   const [isReadyLoading, setIsReadyLoading] = useState(false);
@@ -55,6 +58,7 @@ export function GameClient({
           gameId={gameId}
           initialHand={initialHand}
           initialOpponentHandCount={initialOpponentHandCount}
+          initialGrid={initialGrid}
         />
       </div>
     );

@@ -78,6 +78,7 @@ model Game {
   currentPhase           String   @default("DRAW") // Values: "DRAW", "AWAKEN", "ACTION", "SCORING"
   hasUsedAwaken          Boolean  @default(false)
   magicCardsPlayedThisTurn Int    @default(0)
+  creatureCardPlayedThisTurn Boolean @default(false)
   players                Player[]
 }
 

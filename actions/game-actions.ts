@@ -160,6 +160,8 @@ export type GameState = {
   currentPhase: string;
   currentTurnPlayerId: number | null;
   playerScores: Array<{ playerId: number; points: number }>;
+  creatureCardPlayedThisTurn: boolean;
+  magicCardsPlayedThisTurn: number;
 };
 
 export async function getGameState(
@@ -229,6 +231,8 @@ export async function getGameState(
         playerId: p.id,
         points: p.currentPoints,
       })),
+      creatureCardPlayedThisTurn: game.creatureCardPlayedThisTurn,
+      magicCardsPlayedThisTurn: game.magicCardsPlayedThisTurn,
     });
   } catch (error) {
     console.error("[getGameState] unexpected error", error);
@@ -512,6 +516,8 @@ export async function markPlayerReady(
         playerId: p.id,
         points: p.currentPoints,
       })),
+      creatureCardPlayedThisTurn: updatedGame.creatureCardPlayedThisTurn,
+      magicCardsPlayedThisTurn: updatedGame.magicCardsPlayedThisTurn,
     });
   } catch (error) {
     console.error("[markPlayerReady] unexpected error", error);
@@ -569,6 +575,21 @@ export async function placeCardOnField(
       return actionError(
         "Can only place cards in ACTION phase on your turn",
         ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    // Validate creature card restrictions
+    if (game.creatureCardPlayedThisTurn) {
+      return actionError(
+        "You can only play one creature card per turn",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    if (game.magicCardsPlayedThisTurn > 0) {
+      return actionError(
+        "Cannot play creature card after playing magic cards",
+        ERROR_CODES.VALIDATION_ERROR
       );
     }
 
@@ -647,7 +668,10 @@ export async function placeCardOnField(
     await prisma.$transaction([
       prisma.game.update({
         where: { id: gameId },
-        data: { cardGrid: updatedGridData === null ? undefined : updatedGridData },
+        data: { 
+          cardGrid: updatedGridData === null ? undefined : updatedGridData,
+          creatureCardPlayedThisTurn: true,
+        },
       }),
       prisma.player.update({
         where: { id: player.id },
@@ -655,23 +679,12 @@ export async function placeCardOnField(
       }),
     ]);
 
-    // If no magic cards played, allow ending phase
-    // If 1 magic card played, only allow another magic card or ending phase
-    // If 2 magic cards played, auto-advance to SCORING
-    // For creature placement, check if we should auto-advance
-    if (game.magicCardsPlayedThisTurn === 0) {
-      // Can continue playing or end phase
-      return actionSuccess(undefined);
-    } else if (game.magicCardsPlayedThisTurn >= 2) {
-      // Auto-advance to SCORING
-      const refetchResult = await refetchGameAndPlayer(gameId, player.id);
-      if (refetchResult.error) {
-        return refetchResult;
-      }
-      return await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
+    // Auto-advance to SCORING phase after placing creature
+    const refetchResult = await refetchGameAndPlayer(gameId, player.id);
+    if (refetchResult.error) {
+      return refetchResult;
     }
-
-    return actionSuccess(undefined);
+    return await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
   } catch (error) {
     console.error("[placeCardOnField] unexpected error", error);
     return actionError(
@@ -777,6 +790,14 @@ export async function playMagicOrInstantCard(
       return actionError(
         "Can only play cards in ACTION phase on your turn",
         ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    // Cannot play magic card if creature already played this turn
+    if (game.creatureCardPlayedThisTurn) {
+      return actionError(
+        "Cannot play magic card after playing a creature card",
+        ERROR_CODES.VALIDATION_ERROR
       );
     }
 
@@ -1007,6 +1028,7 @@ async function endTurnInternal(
       currentPhase: "DRAW",
       hasUsedAwaken: false,
       magicCardsPlayedThisTurn: 0,
+      creatureCardPlayedThisTurn: false,
     },
   });
 

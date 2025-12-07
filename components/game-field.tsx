@@ -20,6 +20,7 @@ type GameFieldProps = {
   isAwakenPhase?: boolean;
   selectedHypnotizedCard?: { row: number; col: number } | null;
   onHypnotizedCardSelect?: (row: number, col: number) => void;
+  canPlaceCreature?: boolean;
 };
 
 export function GameField({ 
@@ -33,6 +34,7 @@ export function GameField({
   isAwakenPhase = false,
   selectedHypnotizedCard = null,
   onHypnotizedCardSelect,
+  canPlaceCreature = true,
 }: GameFieldProps) {
 
   // Update grid valid positions
@@ -89,8 +91,8 @@ export function GameField({
       return positions;
     }
     
-    // Show positions if they have a card OR if they are valid for placement (only if creature card is selected)
-    const canPlaceCard = !isScoringPhase && !isAwakenPhase && selectedCard !== null && selectedCard.type === "creature";
+    // Show positions if they have a card OR if they are valid for placement (only if creature card is selected and placement is allowed)
+    const canPlaceCard = !isScoringPhase && !isAwakenPhase && canPlaceCreature && selectedCard !== null && selectedCard.type === "creature";
     
     for (let row = 0; row < 5; row++) {
       for (let col = 0; col < 5; col++) {
@@ -101,7 +103,7 @@ export function GameField({
       }
     }
     return positions;
-  }, [updatedGrid, selectedCard, isScoringPhase, isAwakenPhase]);
+  }, [updatedGrid, selectedCard, isScoringPhase, isAwakenPhase, canPlaceCreature]);
 
   // Card dimensions and gap for positioning (in pixels)
   const cardWidth = 120;
@@ -218,11 +220,11 @@ export function GameField({
                 ) : (
                   <EmptyCardSpace
                     onClick={() => {
-                      if (!isScoringPhase && !isAwakenPhase && selectedCard && selectedCard.type === "creature") {
+                      if (!isScoringPhase && !isAwakenPhase && canPlaceCreature && selectedCard && selectedCard.type === "creature") {
                         onCardPlace(selectedCard, row, col);
                       }
                     }}
-                    disabled={isScoringPhase || isAwakenPhase || (selectedCard !== null && selectedCard.type !== "creature")}
+                    disabled={isScoringPhase || isAwakenPhase || !canPlaceCreature || (selectedCard !== null && selectedCard.type !== "creature")}
                   />
                 )}
               </div>

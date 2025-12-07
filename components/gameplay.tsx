@@ -66,6 +66,9 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
   const isMyTurn = currentPlayer && gameState.currentTurnPlayerId === currentPlayer.id;
   const currentPhase = gameState.currentPhase;
   const isAwakenPhase = currentPhase === "AWAKEN" && isMyTurn;
+  const isActionPhase = currentPhase === "ACTION" && isMyTurn;
+  const canPlaceCreature = isActionPhase && !gameState.creatureCardPlayedThisTurn && gameState.magicCardsPlayedThisTurn === 0;
+  const canPlayMagic = isActionPhase && !gameState.creatureCardPlayedThisTurn && gameState.magicCardsPlayedThisTurn < 2;
 
   // Track last gameState object reference to detect stream updates
   const lastGameStateRef = useRef<GameState | null>(null);
@@ -300,6 +303,13 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     }
   };
 
+  const handleCardSelect = (card: CardType | null) => {
+    if (card && card.type === "creature" && !canPlaceCreature) {
+      return;
+    }
+    selectCard(card);
+  };
+
   const handleScoringCardSelect = (row: number, col: number) => {
     if (!isMyTurn || currentPhase !== "SCORING") return;
     
@@ -391,7 +401,7 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
       <div className="w-1/2 h-full min-h-0 overflow-hidden">
         <GameField
           grid={grid}
-          selectedCard={selectedCard}
+          selectedCard={canPlaceCreature ? selectedCard : null}
           onCardPlace={handleCardPlace}
           availableThreeInARows={availableThreeInARows}
           selectedScoringCards={selectedScoringCards}
@@ -400,6 +410,7 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
           isAwakenPhase={isAwakenPhase}
           selectedHypnotizedCard={selectedHypnotizedCard}
           onHypnotizedCardSelect={handleHypnotizedCardSelect}
+          canPlaceCreature={canPlaceCreature}
         />
       </div>
 
@@ -507,9 +518,21 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
 
                 {currentPhase === "ACTION" && (
                   <div className="space-y-2">
-                    <Button onClick={handleDrawCardInAction} className="w-full" variant="outline">
-                      Draw Card
-                    </Button>
+                    {gameState.magicCardsPlayedThisTurn === 0 && !gameState.creatureCardPlayedThisTurn && (
+                      <Button onClick={handleDrawCardInAction} className="w-full" variant="outline">
+                        Draw Card
+                      </Button>
+                    )}
+                    {gameState.magicCardsPlayedThisTurn > 0 && (
+                      <div className="text-sm text-gray-600 p-2 bg-yellow-50 rounded">
+                        Magic card played. You can only play another magic card or end the phase.
+                      </div>
+                    )}
+                    {gameState.creatureCardPlayedThisTurn && (
+                      <div className="text-sm text-gray-600 p-2 bg-blue-50 rounded">
+                        Creature card played. Phase will advance automatically.
+                      </div>
+                    )}
                     <Button onClick={handleEndActionPhase} className="w-full" variant="outline">
                       End Action Phase
                     </Button>
@@ -583,10 +606,12 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
           <PlayerHand
             hand={hand}
             selectedCard={selectedCard}
-            onCardSelect={selectCard}
+            onCardSelect={handleCardSelect}
             isAwakenMode={isAwakenPhase}
             selectedDiscardCards={selectedDiscardCards}
             onDiscardCardSelect={handleDiscardCardSelect}
+            canSelectCreature={canPlaceCreature}
+            canPlayMagic={canPlayMagic}
           />
         </div>
       </div>

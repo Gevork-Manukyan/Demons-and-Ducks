@@ -43,17 +43,19 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
       return positions;
     }
     
-    // Show positions if they have a card OR if they are valid for placement
+    // Show positions if they have a card OR if they are valid for placement (only if creature card is selected)
+    const canPlaceCard = selectedCard !== null && selectedCard.type === "creature";
+    
     for (let row = 0; row < 5; row++) {
       for (let col = 0; col < 5; col++) {
         const cell = updatedGrid[row][col];
-        if (cell.card !== null || cell.isValid) {
+        if (cell.card !== null || (cell.isValid && canPlaceCard)) {
           positions.push({ row, col, cell });
         }
       }
     }
     return positions;
-  }, [updatedGrid]);
+  }, [updatedGrid, selectedCard]);
 
   // Card dimensions and gap for positioning (in pixals)
   const cardWidth = 120;
@@ -141,10 +143,11 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
                 ) : (
                   <EmptyCardSpace
                     onClick={() => {
-                      if (selectedCard) {
+                      if (selectedCard && selectedCard.type === "creature") {
                         onCardPlace(selectedCard, row, col);
                       }
                     }}
+                    disabled={selectedCard !== null && selectedCard.type !== "creature"}
                   />
                 )}
               </div>

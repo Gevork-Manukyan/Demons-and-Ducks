@@ -319,6 +319,49 @@ export async function getPlayerHandCardIds(
   }
 }
 
+export async function findCardIdInHand(
+  gameId: number,
+  cardName: string,
+  cardDeck: string,
+  cardType: string,
+  isBasic?: boolean
+): Promise<ActionResult<number | null>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to find a card in your hand"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { player } = result.data;
+    const handCardIds = parseCardIdArray(player.hand);
+
+    if (handCardIds.length === 0) {
+      return actionSuccess(null);
+    }
+
+    const cardRecords = await prisma.card.findMany({
+      where: { id: { in: handCardIds } },
+    });
+
+    const matchingCard = cardRecords.find(
+      (dbCard) =>
+        dbCard.name === cardName &&
+        dbCard.deck === cardDeck &&
+        dbCard.type === cardType &&
+        (cardType !== "creature" || dbCard.isBasic === isBasic)
+    );
+
+    return actionSuccess(matchingCard?.id ?? null);
+  } catch (error) {
+    console.error("[findCardIdInHand] unexpected error", error);
+    return actionError("Could not find card in hand", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
 export async function getPlayerHand(
   gameId: number
 ): Promise<ActionResult<Card[]>> {
@@ -635,6 +678,13 @@ export async function placeCardOnField(
       return actionError("Card not found", ERROR_CODES.NOT_FOUND);
     }
 
+    if (cardRecord.type !== "creature") {
+      return actionError(
+        "Only creature cards can be placed on the field",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
     const cardToPlace = convertPrismaCardToCardType(cardRecord);
 
     const updatedGrid = placeCardOnGrid(
@@ -735,6 +785,67 @@ export async function updateCardHypnotizedState(
     console.error("[updateCardHypnotizedState] unexpected error", error);
     return actionError(
       "Could not update card hypnotized state",
+      ERROR_CODES.UNKNOWN_ERROR
+    );
+  }
+}
+
+export async function playMagicOrInstantCard(
+  gameId: number,
+  cardId: number
+): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to play a card"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { player } = result.data;
+
+    const handCardIds = parseCardIdArray(player.hand);
+    if (!handCardIds.includes(cardId)) {
+      return actionError(
+        "Card is not in your hand",
+        ERROR_CODES.UNAUTHORIZED
+      );
+    }
+
+    const cardRecord = await prisma.card.findUnique({
+      where: { id: cardId },
+    });
+
+    if (!cardRecord) {
+      return actionError("Card not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    if (cardRecord.type === "creature") {
+      return actionError(
+        "Only magic and instant cards can be played this way",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    const updatedHand = handCardIds.filter((id) => id !== cardId);
+    const discardCardIds = parseCardIdArray(player.discardPile);
+    const updatedDiscardPile = [...discardCardIds, cardId];
+
+    await prisma.player.update({
+      where: { id: player.id },
+      data: {
+        hand: updatedHand,
+        discardPile: updatedDiscardPile,
+      },
+    });
+
+    return actionSuccess(undefined);
+  } catch (error) {
+    console.error("[playMagicOrInstantCard] unexpected error", error);
+    return actionError(
+      "Could not play card",
       ERROR_CODES.UNKNOWN_ERROR
     );
   }

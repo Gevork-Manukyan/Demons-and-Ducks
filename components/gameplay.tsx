@@ -5,12 +5,22 @@ import { OpponentHand } from "@/components/opponent-hand";
 import { GameField } from "@/components/game-field";
 import { PlayerHand } from "@/components/player-hand";
 import { useCardPlacement } from "@/hooks/use-card-placement";
-import { getPlayerHand, getOpponentHandCount, getPlayerHandCardIds, placeCardOnField, updateCardHypnotizedState, createCardIdToCardMap } from "@/actions/game-actions";
+import { getPlayerHand, getOpponentHandCount, placeCardOnField, updateCardHypnotizedState, createCardIdToCardMap, playMagicOrInstantCard, findCardIdInHand } from "@/actions/game-actions";
 import { isActionSuccess, isActionError } from "@/lib/errors";
 import type { GameState } from "@/actions/game-actions";
 import type { Card as CardType } from "@/lib/card-types";
 import { databaseFormatToGrid, createEmptyGrid, updateGridValidPositions } from "@/lib/game-field-utils";
 import type { GameGrid } from "@/lib/game-field-utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type GameplayProps = {
   gameState: GameState;
@@ -26,10 +36,11 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     (player) => player.userId !== currentUserId
   );
 
-  const { selectedCard, grid, selectCard, placeCard, updateHypnotized, updateGrid } = useCardPlacement(initialGrid);
+  const { selectedCard, grid, selectCard, placeCard, updateHypnotized, updateGrid, clearSelection } = useCardPlacement(initialGrid);
   const [hand, setHand] = useState<CardType[]>(initialHand);
   const [opponentHandCount, setOpponentHandCount] = useState<number>(initialOpponentHandCount);
   const lastGridDataRef = useRef<string | null>(null);
+  const cardToConfirm = selectedCard && (selectedCard.type === "magic" || selectedCard.type === "instant") ? selectedCard : null;
 
   // Fetch hand and opponent hand count when game status becomes IN_PROGRESS
   useEffect(() => {
@@ -85,6 +96,31 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
   }, [gameState.gridData, updateGrid]);
 
   const handleCardPlace = async (card: CardType, row: number, col: number) => {
+    if (card.type !== "creature") {
+      return;
+    }
+
+    // Find the card ID by matching properties
+    const cardIdResult = await findCardIdInHand(
+      gameId,
+      card.name,
+      card.deck,
+      card.type,
+      card.isBasic
+    );
+
+    if (!isActionSuccess(cardIdResult)) {
+      console.error("Failed to find card ID:", cardIdResult.error);
+      return;
+    }
+
+    const cardId = cardIdResult.data;
+    if (cardId === null) {
+      console.error("Card not found in hand");
+      return;
+    }
+
+    // Find the card index in the local hand for UI updates
     const cardIndex = hand.findIndex(
       (c) =>
         c.name === card.name &&
@@ -94,27 +130,6 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
          (c.type === "creature" && card.type === "creature" && c.isBasic === card.isBasic))
     );
 
-    if (cardIndex === -1) {
-      console.error("Card not found in hand");
-      return;
-    }
-
-    // Fetch hand card IDs to get the card ID for this card
-    const handIdsResult = await getPlayerHandCardIds(gameId);
-    if (!isActionSuccess(handIdsResult)) {
-      console.error("Failed to fetch hand card IDs:", handIdsResult.error);
-      return;
-    }
-
-    const handCardIds = handIdsResult.data;
-    if (cardIndex >= handCardIds.length) {
-      console.error("Card index out of bounds");
-      return;
-    }
-
-    const cardId = handCardIds[cardIndex];
-
-    // Call server action to place card
     const result = await placeCardOnField(gameId, cardId, row, col);
     
     if (isActionError(result)) {
@@ -136,6 +151,55 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     }
 
     updateHypnotized(row, col, hypnotized);
+  };
+
+  const handleConfirmPlayCard = async () => {
+    if (!cardToConfirm) return;
+
+    const cardIdResult = await findCardIdInHand(
+      gameId,
+      cardToConfirm.name,
+      cardToConfirm.deck,
+      cardToConfirm.type,
+      undefined
+    );
+
+    if (!isActionSuccess(cardIdResult)) {
+      console.error("Failed to find card ID:", cardIdResult.error);
+      clearSelection();
+      return;
+    }
+
+    const cardId = cardIdResult.data;
+    if (cardId === null) {
+      console.error("Card not found in hand");
+      clearSelection();
+      return;
+    }
+
+    // Find the card index in the local hand for UI updates
+    const cardIndex = hand.findIndex(
+      (c) =>
+        c.name === cardToConfirm.name &&
+        c.deck === cardToConfirm.deck &&
+        c.type === cardToConfirm.type
+    );
+
+    // Call server action to play card
+    const result = await playMagicOrInstantCard(gameId, cardId);
+    
+    if (isActionError(result)) {
+      console.error("Failed to play card:", result.message);
+      return;
+    }
+
+    // Update local state only if server action succeeds
+    setHand((currentHand) => currentHand.filter((_, index) => index !== cardIndex));
+    clearSelection();
+  };
+
+  const handleCancelPlayCard = () => {
+    clearSelection();
   };
 
   return (
@@ -173,6 +237,22 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
           />
         </div>
       </div>
+
+      {/* Confirmation Dialog for Magic/Instant Cards */}
+      <AlertDialog open={cardToConfirm !== null} onOpenChange={(open) => !open && handleCancelPlayCard()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Play {cardToConfirm?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This {cardToConfirm?.type} card will be played and moved to your discard pile.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelPlayCard}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmPlayCard}>Play</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

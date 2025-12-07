@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { GameClient } from "./game-client";
-import { convertPrismaCardToCardType } from "@/lib/card-utils";
+import { convertPrismaCardToCardType, calculateOpponentHandCount } from "@/lib/card-utils";
 import { parseCardIdArray, safeParseCardGrid } from "@/lib/zod-schemas";
 import { databaseFormatToGrid } from "@/lib/game-field-utils";
 import { createCardIdToCardMap } from "@/actions/game-actions";
@@ -69,9 +69,7 @@ export default async function GamePage({ params }: GamePageProps) {
     initialHand = cardRecords.map(convertPrismaCardToCardType);
   }
 
-  // Find opponent and get their hand count
-  const opponent = game.players.find((p) => p.userId !== userId);
-  const opponentHandCount = opponent ? parseCardIdArray(opponent.hand).length : 0;
+  const opponentHandCount = calculateOpponentHandCount(game.players, userId);
 
   // Load grid from database
   let initialGrid: GameGrid | undefined = undefined;
@@ -109,6 +107,7 @@ export default async function GamePage({ params }: GamePageProps) {
               },
             })),
             gridData,
+            opponentHandCount,
           }}
           currentUserId={userId}
           initialHand={initialHand}

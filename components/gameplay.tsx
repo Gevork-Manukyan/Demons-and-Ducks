@@ -5,7 +5,7 @@ import { OpponentHand } from "@/components/opponent-hand";
 import { GameField } from "@/components/game-field";
 import { PlayerHand } from "@/components/player-hand";
 import { useCardPlacement } from "@/hooks/use-card-placement";
-import { getPlayerHand, getOpponentHandCount, placeCardOnField, updateCardHypnotizedState, createCardIdToCardMap, playMagicOrInstantCard, findCardIdInHand } from "@/actions/game-actions";
+import { getPlayerHand, placeCardOnField, updateCardHypnotizedState, createCardIdToCardMap, playMagicOrInstantCard, findCardIdInHand } from "@/actions/game-actions";
 import { isActionSuccess, isActionError } from "@/lib/errors";
 import type { GameState } from "@/actions/game-actions";
 import type { Card as CardType } from "@/lib/card-types";
@@ -38,11 +38,11 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
 
   const { selectedCard, grid, selectCard, placeCard, updateHypnotized, updateGrid, clearSelection } = useCardPlacement(initialGrid);
   const [hand, setHand] = useState<CardType[]>(initialHand);
-  const [opponentHandCount, setOpponentHandCount] = useState<number>(initialOpponentHandCount);
   const lastGridDataRef = useRef<string | null>(null);
   const cardToConfirm = selectedCard && (selectedCard.type === "magic" || selectedCard.type === "instant") ? selectedCard : null;
+  const opponentHandCount = gameState.opponentHandCount ?? initialOpponentHandCount;
 
-  // Fetch hand and opponent hand count when game status becomes IN_PROGRESS
+  // Fetch hand when game status becomes IN_PROGRESS
   useEffect(() => {
     if (gameState.status === "IN_PROGRESS" && hand.length === 0) {
       const fetchHand = async () => {
@@ -54,17 +54,7 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
         }
       };
 
-      const fetchOpponentHandCount = async () => {
-        const countResult = await getOpponentHandCount(gameId);
-        if (isActionSuccess(countResult)) {
-          setOpponentHandCount(countResult.data);
-        } else {
-          console.error("Failed to fetch opponent hand count:", countResult.error);
-        }
-      };
-
       fetchHand();
-      fetchOpponentHandCount();
     }
   }, [gameState.status, gameId, hand.length]);
 

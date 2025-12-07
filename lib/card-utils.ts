@@ -1,9 +1,11 @@
 import type { Card } from "@/lib/card-types";
 import type { Card as PrismaCard } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   parseCardEffect,
   parseDeckType,
   parseCardType,
+  parseCardIdArray,
 } from "@/lib/zod-schemas";
 
 /**
@@ -42,5 +44,16 @@ export function convertPrismaCardToCardType(card: PrismaCard): Card {
       type: "instant" as const,
     };
   }
+}
+
+/**
+ * Helper function to calculate opponent hand count from players array
+ */
+export function calculateOpponentHandCount(
+  players: Array<{ userId: number; hand: Prisma.JsonValue }>,
+  currentUserId: number
+): number {
+  const opponent = players.find((p) => p.userId !== currentUserId);
+  return opponent ? parseCardIdArray(opponent.hand).length : 0;
 }
 

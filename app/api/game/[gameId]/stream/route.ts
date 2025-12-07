@@ -68,6 +68,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         status: string;
         readyStatuses: Record<number, boolean>;
         gridData: string | null;
+        opponentHandCount: number;
       } | null = null;
 
       const pollGameState = async () => {
@@ -83,6 +84,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
               currentReadyStatuses[p.id] = p.readyToStart;
             });
             const currentGridData = data.gridData ? JSON.stringify(data.gridData) : null;
+            const currentOpponentHandCount = data.opponentHandCount;
 
             // Check if anything changed
             let hasChanged = false;
@@ -92,7 +94,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
               if (
                 currentPlayerCount !== lastState.playerCount ||
                 currentStatus !== lastState.status ||
-                currentGridData !== lastState.gridData
+                currentGridData !== lastState.gridData ||
+                currentOpponentHandCount !== lastState.opponentHandCount
               ) {
                 hasChanged = true;
               } else {
@@ -117,6 +120,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 status: currentStatus,
                 readyStatuses: currentReadyStatuses,
                 gridData: currentGridData,
+                opponentHandCount: currentOpponentHandCount,
               };
             } else {
               // Send heartbeat to keep connection alive

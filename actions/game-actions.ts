@@ -13,7 +13,7 @@ import {
 import { ERROR_CODES } from "@/lib/error-codes";
 import { initializeGame } from "@/lib/game-initialization";
 import { parseCardIdArray, safeParseCardGrid } from "@/lib/zod-schemas";
-import { convertPrismaCardToCardType } from "@/lib/card-utils";
+import { convertPrismaCardToCardType, calculateOpponentHandCount } from "@/lib/card-utils";
 import type { Card } from "@/lib/card-types";
 import {
   databaseFormatToGrid,
@@ -142,6 +142,7 @@ export type GameState = {
     };
   }>;
   gridData: DatabaseGridFormat;
+  opponentHandCount: number;
 };
 
 export async function getGameState(
@@ -188,6 +189,7 @@ export async function getGameState(
       );
     }
 
+    const opponentHandCount = calculateOpponentHandCount(game.players, userId);
     const gridData = safeParseCardGrid(game.cardGrid) ?? null;
 
     return actionSuccess({
@@ -203,6 +205,7 @@ export async function getGameState(
         },
       })),
       gridData,
+      opponentHandCount,
     });
   } catch (error) {
     console.error("[getGameState] unexpected error", error);
@@ -409,10 +412,7 @@ export async function getOpponentHandCount(
     }
 
     const { game, userId } = result.data;
-    const opponent = game.players.find((p) => p.userId !== userId);
-    const opponentHandCount = opponent
-      ? parseCardIdArray(opponent.hand).length
-      : 0;
+    const opponentHandCount = calculateOpponentHandCount(game.players, userId);
 
     return actionSuccess(opponentHandCount);
   } catch (error) {
@@ -510,6 +510,7 @@ export async function markPlayerReady(
     }
 
     const gridData = safeParseCardGrid(updatedGame.cardGrid) ?? null;
+    const opponentHandCount = calculateOpponentHandCount(updatedGame.players, userId);
 
     return actionSuccess({
       gameCode: updatedGame.gameCode,
@@ -524,6 +525,7 @@ export async function markPlayerReady(
         },
       })),
       gridData,
+      opponentHandCount,
     });
   } catch (error) {
     console.error("[markPlayerReady] unexpected error", error);

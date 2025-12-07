@@ -11,6 +11,7 @@ export type GridCell = {
   position: GridPosition;
   isValid: boolean;
   hypnotized: boolean;
+  playerId: number | null;
 };
 
 export type GameGrid = GridCell[][];
@@ -28,6 +29,7 @@ export function createEmptyGrid(): GameGrid {
         position: { row, col },
         isValid: false,
         hypnotized: false,
+        playerId: null,
       });
     }
     grid.push(rowCells);
@@ -145,7 +147,8 @@ export function updateGridValidPositions(grid: GameGrid): GameGrid {
 export function placeCard(
   grid: GameGrid,
   position: GridPosition,
-  card: Card
+  card: Card,
+  playerId: number
 ): GameGrid {
   const newGrid: GameGrid = grid.map((row, rowIndex) =>
     row.map((cell, colIndex) => {
@@ -154,10 +157,12 @@ export function placeCard(
           ...cell,
           card,
           hypnotized: false,
+          playerId,
         };
       }
       return {
         ...cell,
+        playerId: cell.playerId,
       };
     })
   );
@@ -173,6 +178,7 @@ export type DatabaseGridFormat = Array<{
   row: number;
   col: number;
   hypnotized: boolean;
+  playerId: number;
 }> | null;
 
 /**
@@ -188,6 +194,7 @@ export function gridToDatabaseFormat(
     row: number;
     col: number;
     hypnotized: boolean;
+    playerId: number;
   }> = [];
 
   for (let row = 0; row < 5; row++) {
@@ -195,11 +202,15 @@ export function gridToDatabaseFormat(
       const cell = grid[row][col];
       if (cell.card !== null) {
         const cardId = getCardId(cell.card);
+        if (cell.playerId === null) {
+          throw new Error(`Missing playerId for card at position (${row}, ${col})`);
+        }
         entries.push({
           cardId,
           row,
           col,
           hypnotized: cell.hypnotized,
+          playerId: cell.playerId,
         });
       }
     }
@@ -231,7 +242,7 @@ export function databaseFormatToGrid(
   // Place cards from database format
   for (const entry of data) {
     const validatedEntry = cardGridEntrySchema.parse(entry);
-    const { cardId, row, col, hypnotized } = validatedEntry;
+    const { cardId, row, col, hypnotized, playerId } = validatedEntry;
 
     const card = cardIdToCardMap.get(cardId);
     if (!card) {
@@ -243,6 +254,7 @@ export function databaseFormatToGrid(
       position: { row, col },
       isValid: false, // Will be updated by updateGridValidPositions
       hypnotized,
+      playerId,
     };
   }
 

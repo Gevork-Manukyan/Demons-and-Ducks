@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useEffect, useState } from "react";
+import { useMemo, useCallback, useRef, useEffect, useState } from "react";
 import { GameCard } from "@/components/game-card";
 import { EmptyCardSpace } from "@/components/empty-card-space";
 import type { Card } from "@/lib/card-types";
@@ -13,14 +13,75 @@ type GameFieldProps = {
   grid: GameGrid;
   selectedCard: Card | null;
   onCardPlace: (card: Card, row: number, col: number) => void;
+  availableThreeInARows?: Array<Array<{ row: number; col: number }>>;
+  selectedThreeInARow?: Array<{ row: number; col: number }> | null;
+  onThreeInARowSelect?: (positions: Array<{ row: number; col: number }>) => void;
+  isScoringPhase?: boolean;
+  isAwakenPhase?: boolean;
+  selectedHypnotizedCard?: { row: number; col: number } | null;
+  onHypnotizedCardSelect?: (row: number, col: number) => void;
 };
 
-export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
+export function GameField({ 
+  grid, 
+  selectedCard, 
+  onCardPlace,
+  availableThreeInARows = [],
+  selectedThreeInARow = null,
+  onThreeInARowSelect,
+  isScoringPhase = false,
+  isAwakenPhase = false,
+  selectedHypnotizedCard = null,
+  onHypnotizedCardSelect,
+}: GameFieldProps) {
 
   // Update grid valid positions
   const updatedGrid = useMemo(() => {
     return updateGridValidPositions(grid);
   }, [grid]);
+
+  // Helper to check if a position is in a three-in-a-row
+  const threeInARowPositionSet = useMemo(() => {
+    const positionSet = new Set<string>();
+    if (isScoringPhase && availableThreeInARows.length > 0) {
+      availableThreeInARows.forEach((threeInARow) => {
+        threeInARow.forEach((pos) => {
+          positionSet.add(`${pos.row},${pos.col}`);
+        });
+      });
+    }
+    return positionSet;
+  }, [isScoringPhase, availableThreeInARows]);
+
+  const isPositionInThreeInARow = useCallback(
+    (row: number, col: number) => threeInARowPositionSet.has(`${row},${col}`),
+    [threeInARowPositionSet]
+  );
+
+  // Helper to check if a position is in the selected three-in-a-row
+  const selectedThreeInARowPositionSet = useMemo(() => {
+    if (!selectedThreeInARow) return null;
+    return new Set(selectedThreeInARow.map((pos) => `${pos.row},${pos.col}`));
+  }, [selectedThreeInARow]);
+
+  const isPositionInSelectedThreeInARow = useCallback(
+    (row: number, col: number) => {
+      if (!selectedThreeInARowPositionSet) return false;
+      return selectedThreeInARowPositionSet.has(`${row},${col}`);
+    },
+    [selectedThreeInARowPositionSet]
+  );
+
+  // Helper to find which three-in-a-row a position belongs to
+  const getThreeInARowForPosition = useCallback(
+    (row: number, col: number) => {
+      if (!isScoringPhase || !onThreeInARowSelect) return null;
+      return availableThreeInARows.find((threeInARow) =>
+        threeInARow.some((pos) => pos.row === row && pos.col === col)
+      ) || null;
+    },
+    [isScoringPhase, availableThreeInARows, onThreeInARowSelect]
+  );
 
   // Determine which positions to display (only valid positions)
   const positionsToDisplay = useMemo(() => {
@@ -44,7 +105,7 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
     }
     
     // Show positions if they have a card OR if they are valid for placement (only if creature card is selected)
-    const canPlaceCard = selectedCard !== null && selectedCard.type === "creature";
+    const canPlaceCard = !isScoringPhase && !isAwakenPhase && selectedCard !== null && selectedCard.type === "creature";
     
     for (let row = 0; row < 5; row++) {
       for (let col = 0; col < 5; col++) {
@@ -55,9 +116,9 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
       }
     }
     return positions;
-  }, [updatedGrid, selectedCard]);
+  }, [updatedGrid, selectedCard, isScoringPhase, isAwakenPhase]);
 
-  // Card dimensions and gap for positioning (in pixals)
+  // Card dimensions and gap for positioning (in pixels)
   const cardWidth = 120;
   const cardHeight = 168;
   const gap = 8;
@@ -78,8 +139,13 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
   }, [positionsToDisplay]);
 
   // Calculate container dimensions
-  const containerWidth = (bounds.maxCol - bounds.minCol + 1) * cardWidth + (bounds.maxCol - bounds.minCol) * gap;
-  const containerHeight = (bounds.maxRow - bounds.minRow + 1) * cardHeight + (bounds.maxRow - bounds.minRow) * gap;
+  const containerWidth = useMemo(() => {
+    return (bounds.maxCol - bounds.minCol + 1) * cardWidth + (bounds.maxCol - bounds.minCol) * gap;
+  }, [bounds]);
+
+  const containerHeight = useMemo(() => {
+    return (bounds.maxRow - bounds.minRow + 1) * cardHeight + (bounds.maxRow - bounds.minRow) * gap;
+  }, [bounds]);
 
   // Scale the cards to fit the parent element
   const containerRef = useRef<HTMLDivElement>(null);
@@ -129,6 +195,10 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
           {positionsToDisplay.map(({ row, col, cell }) => {
             const x = (col - bounds.minCol) * (cardWidth + gap);
             const y = (row - bounds.minRow) * (cardHeight + gap);
+            const inThreeInARow = isPositionInThreeInARow(row, col);
+            const inSelectedThreeInARow = isPositionInSelectedThreeInARow(row, col);
+            const threeInARowForPosition = getThreeInARowForPosition(row, col);
+            
             return (
               <div
                 key={`${row}-${col}`}
@@ -139,15 +209,36 @@ export function GameField({ grid, selectedCard, onCardPlace }: GameFieldProps) {
                 }}
               >
                 {cell.card ? (
-                  <GameCard card={cell.card} />
+                  <div
+                    className={`relative ${
+                      isScoringPhase && inThreeInARow
+                        ? inSelectedThreeInARow
+                          ? "ring-4 ring-green-500"
+                          : "ring-2 ring-yellow-400 cursor-pointer"
+                        : isAwakenPhase && cell.hypnotized
+                        ? selectedHypnotizedCard?.row === row && selectedHypnotizedCard?.col === col
+                          ? "ring-4 ring-blue-500 cursor-pointer"
+                          : "ring-2 ring-purple-400 cursor-pointer"
+                        : ""
+                    }`}
+                    onClick={() => {
+                      if (isScoringPhase && threeInARowForPosition && onThreeInARowSelect) {
+                        onThreeInARowSelect(threeInARowForPosition);
+                      } else if (isAwakenPhase && cell.hypnotized && onHypnotizedCardSelect) {
+                        onHypnotizedCardSelect(row, col);
+                      }
+                    }}
+                  >
+                    <GameCard card={cell.card} />
+                  </div>
                 ) : (
                   <EmptyCardSpace
                     onClick={() => {
-                      if (selectedCard && selectedCard.type === "creature") {
+                      if (!isScoringPhase && !isAwakenPhase && selectedCard && selectedCard.type === "creature") {
                         onCardPlace(selectedCard, row, col);
                       }
                     }}
-                    disabled={selectedCard !== null && selectedCard.type !== "creature"}
+                    disabled={isScoringPhase || isAwakenPhase || (selectedCard !== null && selectedCard.type !== "creature")}
                   />
                 )}
               </div>

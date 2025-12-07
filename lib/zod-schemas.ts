@@ -75,6 +75,7 @@ export const cardGridEntrySchema = z.object({
   row: z.number().int().min(0).max(4),
   col: z.number().int().min(0).max(4),
   hypnotized: z.boolean(),
+  playerId: z.number().int().positive(),
 });
 
 export const cardGridSchema = z.array(cardGridEntrySchema).nullable().optional();

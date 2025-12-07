@@ -14,7 +14,7 @@ type UseCardPlacementReturn = {
   selectedCard: Card | null;
   grid: GameGrid;
   selectCard: (card: Card | null) => void;
-  placeCard: (card: Card, row: number, col: number) => void;
+  placeCard: (card: Card, row: number, col: number, playerId: number) => void;
   clearSelection: () => void;
   updateHypnotized: (row: number, col: number, hypnotized: boolean) => void;
   updateGrid: (newGrid: GameGrid) => void;
@@ -34,8 +34,8 @@ export function useCardPlacement(initialGrid?: GameGrid): UseCardPlacementReturn
     setSelectedCard(card);
   }, []);
 
-  const placeCard = useCallback((card: Card, row: number, col: number) => {
-    setGrid((currentGrid) => placeCardOnGrid(currentGrid, { row, col }, card));
+  const placeCard = useCallback((card: Card, row: number, col: number, playerId: number) => {
+    setGrid((currentGrid) => placeCardOnGrid(currentGrid, { row, col }, card, playerId));
     setSelectedCard(null);
   }, []);
 

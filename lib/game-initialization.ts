@@ -92,6 +92,9 @@ export async function initializeGame(gameId: number): Promise<void> {
       where: { id: gameId },
       data: {
         currentTurnPlayerId: firstPlayerId,
+        currentPhase: "DRAW",
+        hasUsedAwaken: false,
+        magicCardsPlayedThisTurn: 0,
       },
     }),
   ]);

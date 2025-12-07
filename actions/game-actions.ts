@@ -26,6 +26,18 @@ import {
   type GameGrid,
   type DatabaseGridFormat,
 } from "@/lib/game-field-utils";
+import {
+  isPlayerTurn,
+  getCurrentPhase,
+  getOtherPlayer,
+  canPerformAction,
+  type GamePhase,
+} from "@/lib/turn-validation";
+import {
+  detectThreeInARow,
+  isValidThreeInARow,
+  createPlayerIdMap,
+} from "@/lib/scoring-utils";
 import type { Player, Game } from "@prisma/client";
 
 type GamePlayerData = {
@@ -33,6 +45,8 @@ type GamePlayerData = {
   player: Player;
   userId: number;
 };
+
+type GameWithPlayers = Game & { players: Player[] };
 
 /**
  * Helper function to authenticate user and get game/player data
@@ -143,6 +157,9 @@ export type GameState = {
   }>;
   gridData: DatabaseGridFormat;
   opponentHandCount: number;
+  currentPhase: string;
+  currentTurnPlayerId: number | null;
+  playerScores: Array<{ playerId: number; points: number }>;
 };
 
 export async function getGameState(
@@ -206,6 +223,12 @@ export async function getGameState(
       })),
       gridData,
       opponentHandCount,
+      currentPhase: game.currentPhase,
+      currentTurnPlayerId: game.currentTurnPlayerId,
+      playerScores: game.players.map((p) => ({
+        playerId: p.id,
+        points: p.currentPoints,
+      })),
     });
   } catch (error) {
     console.error("[getGameState] unexpected error", error);
@@ -483,6 +506,12 @@ export async function markPlayerReady(
       })),
       gridData,
       opponentHandCount,
+      currentPhase: updatedGame.currentPhase,
+      currentTurnPlayerId: updatedGame.currentTurnPlayerId,
+      playerScores: updatedGame.players.map((p) => ({
+        playerId: p.id,
+        points: p.currentPoints,
+      })),
     });
   } catch (error) {
     console.error("[markPlayerReady] unexpected error", error);
@@ -498,7 +527,7 @@ export async function markPlayerReady(
  * Optionally includes additional card IDs (e.g., for a card being placed)
  */
 export async function createCardIdToCardMap(
-  gridData: Array<{ cardId: number; row: number; col: number; hypnotized: boolean }>,
+  gridData: Array<{ cardId: number; row: number; col: number; hypnotized: boolean; playerId?: number }>,
   additionalCardIds: number[] = []
 ): Promise<Map<number, Card>> {
   const gridCardIds = gridData.map((entry) => entry.cardId);
@@ -534,6 +563,14 @@ export async function placeCardOnField(
     }
 
     const { game, player } = result.data;
+
+    // Validate it's player's turn and ACTION phase
+    if (!canPerformAction(game, player.id, "ACTION")) {
+      return actionError(
+        "Can only place cards in ACTION phase on your turn",
+        ERROR_CODES.INVALID_PHASE
+      );
+    }
 
     // Verify the card is in the player's hand
     const handCardIds = parseCardIdArray(player.hand);
@@ -595,10 +632,15 @@ export async function placeCardOnField(
     const updatedGrid = placeCardOnGrid(
       currentGrid,
       { row, col },
-      cardToPlace
+      cardToPlace,
+      player.id
     );
 
-    const updatedGridData = gridToDatabaseFormat(updatedGrid, (card) => card.id);
+    // Convert to database format
+    const updatedGridData = gridToDatabaseFormat(
+      updatedGrid,
+      (card) => card.id
+    );
     const updatedHand = handCardIds.filter((id) => id !== cardId);
 
     // Update game and player in a transaction
@@ -612,6 +654,24 @@ export async function placeCardOnField(
         data: { hand: updatedHand },
       }),
     ]);
+
+    // If no magic cards played, allow ending phase
+    // If 1 magic card played, only allow another magic card or ending phase
+    // If 2 magic cards played, auto-advance to SCORING
+    // For creature placement, check if we should auto-advance
+    if (game.magicCardsPlayedThisTurn === 0) {
+      // Can continue playing or end phase
+      return actionSuccess(undefined);
+    } else if (game.magicCardsPlayedThisTurn >= 2) {
+      // Auto-advance to SCORING
+      const updatedGame = await prisma.game.findUnique({
+        where: { id: gameId },
+        include: { players: true },
+      });
+      if (updatedGame) {
+        return await advanceToNextPhaseInternal(updatedGame, player);
+      }
+    }
 
     return actionSuccess(undefined);
   } catch (error) {
@@ -677,7 +737,10 @@ export async function updateCardHypnotizedState(
       hypnotized
     );
 
-    const updatedGridData = gridToDatabaseFormat(updatedGrid, (card) => card.id);
+    const updatedGridData = gridToDatabaseFormat(
+      updatedGrid,
+      (card) => card.id
+    );
 
     // Update game
     await prisma.game.update({
@@ -709,7 +772,23 @@ export async function playMagicOrInstantCard(
       return result;
     }
 
-    const { player } = result.data;
+    const { game, player } = result.data;
+
+    // Validate it's player's turn and ACTION phase
+    if (!canPerformAction(game, player.id, "ACTION")) {
+      return actionError(
+        "Can only play cards in ACTION phase on your turn",
+        ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    // Check magic card limit
+    if (game.magicCardsPlayedThisTurn >= 2) {
+      return actionError(
+        "Maximum of 2 magic/instant cards per turn",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
 
     const handCardIds = parseCardIdArray(player.hand);
     if (!handCardIds.includes(cardId)) {
@@ -738,13 +817,35 @@ export async function playMagicOrInstantCard(
     const discardCardIds = parseCardIdArray(player.discardPile);
     const updatedDiscardPile = [...discardCardIds, cardId];
 
-    await prisma.player.update({
-      where: { id: player.id },
-      data: {
-        hand: updatedHand,
-        discardPile: updatedDiscardPile,
-      },
-    });
+    const newMagicCardsPlayed = game.magicCardsPlayedThisTurn + 1;
+
+    // Update player and game in transaction
+    await prisma.$transaction([
+      prisma.player.update({
+        where: { id: player.id },
+        data: {
+          hand: updatedHand,
+          discardPile: updatedDiscardPile,
+        },
+      }),
+      prisma.game.update({
+        where: { id: gameId },
+        data: {
+          magicCardsPlayedThisTurn: newMagicCardsPlayed,
+        },
+      }),
+    ]);
+
+    // If 2 magic cards played, auto-advance to SCORING
+    if (newMagicCardsPlayed >= 2) {
+      const updatedGame = await prisma.game.findUnique({
+        where: { id: gameId },
+        include: { players: true },
+      });
+      if (updatedGame) {
+        return await advanceToNextPhaseInternal(updatedGame, player);
+      }
+    }
 
     return actionSuccess(undefined);
   } catch (error) {
@@ -753,6 +854,636 @@ export async function playMagicOrInstantCard(
       "Could not play card",
       ERROR_CODES.UNKNOWN_ERROR
     );
+  }
+}
+
+/**
+ * Helper function to check if AWAKEN phase should be auto-skipped
+ */
+async function shouldSkipAwakenPhase(
+  game: GameWithPlayers,
+  player: Player
+): Promise<boolean> {
+  // Check if player has at least 2 cards in hand
+  const handCardIds = parseCardIdArray(player.hand);
+  if (handCardIds.length < 2) {
+    return true;
+  }
+
+  // Check if player has any hypnotized cards
+  const gridData = safeParseCardGrid(game.cardGrid);
+  if (!gridData || gridData.length === 0) {
+    return true;
+  }
+
+  // Check if any hypnotized cards belong to this player
+  for (const entry of gridData) {
+    if (entry.hypnotized && entry.playerId === player.id) {
+      return false; // Has hypnotized card, don't skip
+    }
+  }
+
+  return true; // No hypnotized cards, skip
+}
+
+/**
+ * Helper function to check if SCORING phase should be auto-skipped
+ */
+async function shouldSkipScoringPhase(
+  game: GameWithPlayers,
+  player: Player
+): Promise<boolean> {
+  const gridData = safeParseCardGrid(game.cardGrid);
+  if (!gridData || gridData.length === 0) {
+    return true;
+  }
+
+  // Convert to grid format
+  const cardIdToCardMap = await createCardIdToCardMap(gridData);
+  const grid = databaseFormatToGrid(gridData, cardIdToCardMap);
+  const playerIdMap = createPlayerIdMap(gridData);
+
+  // Check if player has any three-in-a-rows
+  const threeInARows = detectThreeInARow(grid, player.id, playerIdMap);
+  return threeInARows.length === 0;
+}
+
+/**
+ * Helper function to advance to the next phase
+ */
+async function advanceToNextPhaseInternal(
+  game: GameWithPlayers,
+  player: Player
+): Promise<ActionResult<void>> {
+  const currentPhase = getCurrentPhase(game);
+
+  let nextPhase: GamePhase | null = null;
+
+  switch (currentPhase) {
+    case "DRAW":
+      // Check if AWAKEN should be skipped
+      if (await shouldSkipAwakenPhase(game, player)) {
+        // Skip AWAKEN, go to ACTION
+        nextPhase = "ACTION";
+      } else {
+        nextPhase = "AWAKEN";
+      }
+      break;
+    case "AWAKEN":
+      nextPhase = "ACTION";
+      break;
+    case "ACTION":
+      // Check if SCORING should be skipped
+      if (await shouldSkipScoringPhase(game, player)) {
+        // Skip SCORING, end turn
+        return await endTurnInternal(game, player);
+      } else {
+        nextPhase = "SCORING";
+      }
+      break;
+    case "SCORING":
+      // End turn
+      return await endTurnInternal(game, player);
+  }
+
+  if (nextPhase) {
+    await prisma.game.update({
+      where: { id: game.id },
+      data: { currentPhase: nextPhase },
+    });
+  }
+
+  return actionSuccess(undefined);
+}
+
+/**
+ * Helper function to end the turn
+ */
+async function endTurnInternal(
+  game: GameWithPlayers,
+  player: Player
+): Promise<ActionResult<void>> {
+  // Get the other player
+  const otherPlayer = getOtherPlayer(game.players, player.id);
+  if (!otherPlayer) {
+    return actionError("Other player not found", ERROR_CODES.NOT_FOUND);
+  }
+
+  // Check win condition
+  if (player.currentPoints >= game.pointsToWin) {
+    await prisma.game.update({
+      where: { id: game.id },
+      data: { status: "COMPLETED" },
+    });
+    return actionSuccess(undefined);
+  }
+
+  // Switch to other player's turn
+  await prisma.game.update({
+    where: { id: game.id },
+    data: {
+      currentTurnPlayerId: otherPlayer.id,
+      currentPhase: "DRAW",
+      hasUsedAwaken: false,
+      magicCardsPlayedThisTurn: 0,
+    },
+  });
+
+  return actionSuccess(undefined);
+}
+
+/**
+ * Advance to the next phase
+ */
+export async function advanceToNextPhase(
+  gameId: number
+): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to advance phase"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Validate it's player's turn
+    if (!isPlayerTurn(game, player.id)) {
+      return actionError("It's not your turn", ERROR_CODES.NOT_YOUR_TURN);
+    }
+
+    return await advanceToNextPhaseInternal(game, player);
+  } catch (error) {
+    console.error("[advanceToNextPhase] unexpected error", error);
+    return actionError(
+      "Could not advance phase",
+      ERROR_CODES.UNKNOWN_ERROR
+    );
+  }
+}
+
+/**
+ * End the current turn
+ */
+export async function endTurn(gameId: number): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to end turn"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Validate it's player's turn
+    if (!isPlayerTurn(game, player.id)) {
+      return actionError("It's not your turn", ERROR_CODES.NOT_YOUR_TURN);
+    }
+
+    return await endTurnInternal(game, player);
+  } catch (error) {
+    console.error("[endTurn] unexpected error", error);
+    return actionError("Could not end turn", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+/**
+ * Draw a card in the DRAW phase
+ */
+export async function drawCard(gameId: number): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to draw a card"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Validate it's player's turn and DRAW phase
+    if (!canPerformAction(game, player.id, "DRAW")) {
+      return actionError(
+        "Can only draw in DRAW phase on your turn",
+        ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    // Draw one card from deck
+    const deckCardIds = parseCardIdArray(player.deck);
+    const handCardIds = parseCardIdArray(player.hand);
+
+    if (deckCardIds.length > 0) {
+      const drawnCardId = deckCardIds[0];
+      const updatedDeck = deckCardIds.slice(1);
+      const updatedHand = [...handCardIds, drawnCardId];
+
+      await prisma.player.update({
+        where: { id: player.id },
+        data: {
+          deck: updatedDeck,
+          hand: updatedHand,
+        },
+      });
+    }
+
+    // Auto-advance to AWAKEN phase (or ACTION if AWAKEN is skipped)
+    return await advanceToNextPhaseInternal(game, player);
+  } catch (error) {
+    console.error("[drawCard] unexpected error", error);
+    return actionError("Could not draw card", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+/**
+ * Awaken a hypnotized card
+ */
+export async function awakenCard(
+  gameId: number,
+  row: number,
+  col: number,
+  discardCardIds: [number, number]
+): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to awaken a card"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Validate it's player's turn and AWAKEN phase
+    if (!canPerformAction(game, player.id, "AWAKEN")) {
+      return actionError(
+        "Can only awaken in AWAKEN phase on your turn",
+        ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    // Validate awaken not used this turn
+    if (game.hasUsedAwaken) {
+      return actionError(
+        "Awaken already used this turn",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    // Validate position
+    if (row < 0 || row >= 5 || col < 0 || col >= 5) {
+      return actionError("Invalid position", ERROR_CODES.VALIDATION_ERROR);
+    }
+
+    // Validate discard cards are in hand
+    const handCardIds = parseCardIdArray(player.hand);
+    if (
+      !handCardIds.includes(discardCardIds[0]) ||
+      !handCardIds.includes(discardCardIds[1])
+    ) {
+      return actionError(
+        "Discard cards must be in hand",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    // Load grid and validate card
+    const gridData = safeParseCardGrid(game.cardGrid);
+    if (!gridData || gridData.length === 0) {
+      return actionError("No cards on field", ERROR_CODES.NOT_FOUND);
+    }
+
+    const cardEntry = gridData.find((e) => e.row === row && e.col === col);
+    if (!cardEntry) {
+      return actionError("No card at position", ERROR_CODES.NOT_FOUND);
+    }
+
+    if (!cardEntry.hypnotized) {
+      return actionError("Card is not hypnotized", ERROR_CODES.VALIDATION_ERROR);
+    }
+
+    if (cardEntry.playerId !== player.id) {
+      return actionError(
+        "Card does not belong to you",
+        ERROR_CODES.UNAUTHORIZED
+      );
+    }
+
+    // Update grid: un-hypnotize card
+    const updatedGridData = gridData.map((entry) => {
+      if (entry.row === row && entry.col === col) {
+        return { ...entry, hypnotized: false };
+      }
+      return entry;
+    });
+
+    // Remove discard cards from hand
+    const updatedHand = handCardIds.filter(
+      (id) => id !== discardCardIds[0] && id !== discardCardIds[1]
+    );
+    const discardCardIdsArray = parseCardIdArray(player.discardPile);
+    const updatedDiscardPile = [
+      ...discardCardIdsArray,
+      discardCardIds[0],
+      discardCardIds[1],
+    ];
+
+    // Update in transaction
+    await prisma.$transaction([
+      prisma.game.update({
+        where: { id: gameId },
+        data: {
+          cardGrid: updatedGridData,
+          hasUsedAwaken: true,
+        },
+      }),
+      prisma.player.update({
+        where: { id: player.id },
+        data: {
+          hand: updatedHand,
+          discardPile: updatedDiscardPile,
+        },
+      }),
+    ]);
+
+    // Auto-advance to ACTION phase
+    const updatedGame = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: { players: true },
+    });
+
+    if (!updatedGame) {
+      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    return await advanceToNextPhaseInternal(updatedGame, player);
+  } catch (error) {
+    console.error("[awakenCard] unexpected error", error);
+    return actionError("Could not awaken card", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+/**
+ * Skip the AWAKEN phase
+ */
+export async function skipAwaken(
+  gameId: number
+): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to skip awaken"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Validate it's player's turn and AWAKEN phase
+    if (!canPerformAction(game, player.id, "AWAKEN")) {
+      return actionError(
+        "Can only skip in AWAKEN phase on your turn",
+        ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    // Auto-advance to ACTION phase
+    return await advanceToNextPhaseInternal(game, player);
+  } catch (error) {
+    console.error("[skipAwaken] unexpected error", error);
+    return actionError("Could not skip awaken", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+/**
+ * Draw a card in the ACTION phase
+ */
+export async function drawCardInActionPhase(
+  gameId: number
+): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to draw a card"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Validate it's player's turn and ACTION phase
+    if (!canPerformAction(game, player.id, "ACTION")) {
+      return actionError(
+        "Can only draw in ACTION phase on your turn",
+        ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    // Draw one card from deck
+    const deckCardIds = parseCardIdArray(player.deck);
+    const handCardIds = parseCardIdArray(player.hand);
+
+    if (deckCardIds.length > 0) {
+      const drawnCardId = deckCardIds[0];
+      const updatedDeck = deckCardIds.slice(1);
+      const updatedHand = [...handCardIds, drawnCardId];
+
+      await prisma.player.update({
+        where: { id: player.id },
+        data: {
+          deck: updatedDeck,
+          hand: updatedHand,
+        },
+      });
+    }
+
+    // Auto-advance to SCORING phase (or skip if no three-in-a-rows)
+    return await advanceToNextPhaseInternal(game, player);
+  } catch (error) {
+    console.error("[drawCardInActionPhase] unexpected error", error);
+    return actionError("Could not draw card", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+/**
+ * End the ACTION phase
+ */
+export async function endActionPhase(
+  gameId: number
+): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to end action phase"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Validate it's player's turn and ACTION phase
+    if (!canPerformAction(game, player.id, "ACTION")) {
+      return actionError(
+        "Can only end ACTION phase on your turn",
+        ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    // Auto-advance to SCORING phase (or skip if no three-in-a-rows)
+    return await advanceToNextPhaseInternal(game, player);
+  } catch (error) {
+    console.error("[endActionPhase] unexpected error", error);
+    return actionError("Could not end action phase", ERROR_CODES.UNKNOWN_ERROR);
+  }
+}
+
+/**
+ * Get available three-in-a-rows for the current player
+ */
+export async function getAvailableThreeInARows(
+  gameId: number
+): Promise<ActionResult<Array<Array<{ row: number; col: number }>>>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to get three-in-a-rows"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Validate it's player's turn and SCORING phase
+    if (!canPerformAction(game, player.id, "SCORING")) {
+      return actionError(
+        "Can only get three-in-a-rows in SCORING phase on your turn",
+        ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    const gridData = safeParseCardGrid(game.cardGrid);
+    if (!gridData || gridData.length === 0) {
+      return actionSuccess([]);
+    }
+
+    // Convert to grid format
+    const cardIdToCardMap = await createCardIdToCardMap(gridData);
+    const grid = databaseFormatToGrid(gridData, cardIdToCardMap);
+    const playerIdMap = createPlayerIdMap(gridData);
+
+    // Detect three-in-a-rows
+    const threeInARows = detectThreeInARow(grid, player.id, playerIdMap);
+
+    return actionSuccess(threeInARows);
+  } catch (error) {
+    console.error("[getAvailableThreeInARows] unexpected error", error);
+    return actionError(
+      "Could not get three-in-a-rows",
+      ERROR_CODES.UNKNOWN_ERROR
+    );
+  }
+}
+
+/**
+ * Score a three-in-a-row
+ */
+export async function scoreThreeInARow(
+  gameId: number,
+  positions: Array<{ row: number; col: number }>
+): Promise<ActionResult<void>> {
+  try {
+    const result = await getGameAndPlayer(
+      gameId,
+      "You must be logged in to score"
+    );
+
+    if (result.error) {
+      return result;
+    }
+
+    const { game, player } = result.data;
+
+    // Validate it's player's turn and SCORING phase
+    if (!canPerformAction(game, player.id, "SCORING")) {
+      return actionError(
+        "Can only score in SCORING phase on your turn",
+        ERROR_CODES.INVALID_PHASE
+      );
+    }
+
+    const gridData = safeParseCardGrid(game.cardGrid);
+    if (!gridData || gridData.length === 0) {
+      return actionError("No cards on field", ERROR_CODES.NOT_FOUND);
+    }
+
+    // Convert to grid format
+    const cardIdToCardMap = await createCardIdToCardMap(gridData);
+    const grid = databaseFormatToGrid(gridData, cardIdToCardMap);
+    const playerIdMap = createPlayerIdMap(gridData);
+
+    // Validate three-in-a-row
+    if (!isValidThreeInARow(grid, positions, player.id, playerIdMap)) {
+      return actionError(
+        "Invalid three-in-a-row",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    // Remove cards from grid
+    const positionSet = new Set(
+      positions.map((p) => `${p.row},${p.col}`)
+    );
+    const updatedGridData = gridData.filter(
+      (entry) => !positionSet.has(`${entry.row},${entry.col}`)
+    );
+
+    // Increment player's points
+    const newPoints = player.currentPoints + 1;
+
+    // Update in transaction
+    await prisma.$transaction([
+      prisma.game.update({
+        where: { id: gameId },
+        data: {
+          cardGrid: updatedGridData.length > 0 ? updatedGridData : undefined,
+        },
+      }),
+      prisma.player.update({
+        where: { id: player.id },
+        data: { currentPoints: newPoints },
+      }),
+    ]);
+
+    // Check win condition
+    if (newPoints >= game.pointsToWin) {
+      await prisma.game.update({
+        where: { id: gameId },
+        data: { status: "COMPLETED" },
+      });
+    }
+
+    return actionSuccess(undefined);
+  } catch (error) {
+    console.error("[scoreThreeInARow] unexpected error", error);
+    return actionError("Could not score", ERROR_CODES.UNKNOWN_ERROR);
   }
 }
 

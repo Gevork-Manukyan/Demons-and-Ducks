@@ -32,9 +32,19 @@ export default async function GamePage({ params }: GamePageProps) {
 
   const game = await prisma.game.findUnique({
     where: { id: gameIdNum },
-    include: {
+    select: {
+      gameCode: true,
+      status: true,
+      currentPhase: true,
+      currentTurnPlayerId: true,
+      cardGrid: true,
       players: {
-        include: {
+        select: {
+          id: true,
+          userId: true,
+          readyToStart: true,
+          currentPoints: true,
+          hand: true,
           user: {
             select: {
               id: true,
@@ -108,6 +118,12 @@ export default async function GamePage({ params }: GamePageProps) {
             })),
             gridData,
             opponentHandCount,
+            currentPhase: game.currentPhase || "DRAW",
+            currentTurnPlayerId: game.currentTurnPlayerId,
+            playerScores: game.players.map((p) => ({
+              playerId: p.id,
+              points: p.currentPoints,
+            })),
           }}
           currentUserId={userId}
           initialHand={initialHand}

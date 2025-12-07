@@ -14,8 +14,8 @@ type GameFieldProps = {
   selectedCard: Card | null;
   onCardPlace: (card: Card, row: number, col: number) => void;
   availableThreeInARows?: Array<Array<{ row: number; col: number }>>;
-  selectedThreeInARow?: Array<{ row: number; col: number }> | null;
-  onThreeInARowSelect?: (positions: Array<{ row: number; col: number }>) => void;
+  selectedScoringCards?: Array<{ row: number; col: number }>;
+  onScoringCardSelect?: (row: number, col: number) => void;
   isScoringPhase?: boolean;
   isAwakenPhase?: boolean;
   selectedHypnotizedCard?: { row: number; col: number } | null;
@@ -27,8 +27,8 @@ export function GameField({
   selectedCard, 
   onCardPlace,
   availableThreeInARows = [],
-  selectedThreeInARow = null,
-  onThreeInARowSelect,
+  selectedScoringCards = [],
+  onScoringCardSelect,
   isScoringPhase = false,
   isAwakenPhase = false,
   selectedHypnotizedCard = null,
@@ -40,8 +40,8 @@ export function GameField({
     return updateGridValidPositions(grid);
   }, [grid]);
 
-  // Helper to check if a position is in a three-in-a-row
-  const threeInARowPositionSet = useMemo(() => {
+  // Helper to check if a position is part of any valid three-in-a-row (for highlighting)
+  const validScoringPositionSet = useMemo(() => {
     const positionSet = new Set<string>();
     if (isScoringPhase && availableThreeInARows.length > 0) {
       availableThreeInARows.forEach((threeInARow) => {
@@ -53,34 +53,19 @@ export function GameField({
     return positionSet;
   }, [isScoringPhase, availableThreeInARows]);
 
-  const isPositionInThreeInARow = useCallback(
-    (row: number, col: number) => threeInARowPositionSet.has(`${row},${col}`),
-    [threeInARowPositionSet]
+  const isPositionValidForScoring = useCallback(
+    (row: number, col: number) => validScoringPositionSet.has(`${row},${col}`),
+    [validScoringPositionSet]
   );
 
-  // Helper to check if a position is in the selected three-in-a-row
-  const selectedThreeInARowPositionSet = useMemo(() => {
-    if (!selectedThreeInARow) return null;
-    return new Set(selectedThreeInARow.map((pos) => `${pos.row},${pos.col}`));
-  }, [selectedThreeInARow]);
+  // Helper to check if a position is selected for scoring
+  const selectedScoringPositionSet = useMemo(() => {
+    return new Set(selectedScoringCards.map((pos) => `${pos.row},${pos.col}`));
+  }, [selectedScoringCards]);
 
-  const isPositionInSelectedThreeInARow = useCallback(
-    (row: number, col: number) => {
-      if (!selectedThreeInARowPositionSet) return false;
-      return selectedThreeInARowPositionSet.has(`${row},${col}`);
-    },
-    [selectedThreeInARowPositionSet]
-  );
-
-  // Helper to find which three-in-a-row a position belongs to
-  const getThreeInARowForPosition = useCallback(
-    (row: number, col: number) => {
-      if (!isScoringPhase || !onThreeInARowSelect) return null;
-      return availableThreeInARows.find((threeInARow) =>
-        threeInARow.some((pos) => pos.row === row && pos.col === col)
-      ) || null;
-    },
-    [isScoringPhase, availableThreeInARows, onThreeInARowSelect]
+  const isPositionSelectedForScoring = useCallback(
+    (row: number, col: number) => selectedScoringPositionSet.has(`${row},${col}`),
+    [selectedScoringPositionSet]
   );
 
   // Determine which positions to display (only valid positions)
@@ -195,9 +180,8 @@ export function GameField({
           {positionsToDisplay.map(({ row, col, cell }) => {
             const x = (col - bounds.minCol) * (cardWidth + gap);
             const y = (row - bounds.minRow) * (cardHeight + gap);
-            const inThreeInARow = isPositionInThreeInARow(row, col);
-            const inSelectedThreeInARow = isPositionInSelectedThreeInARow(row, col);
-            const threeInARowForPosition = getThreeInARowForPosition(row, col);
+            const isValidForScoring = isPositionValidForScoring(row, col);
+            const isSelectedForScoring = isPositionSelectedForScoring(row, col);
             
             return (
               <div
@@ -211,9 +195,9 @@ export function GameField({
                 {cell.card ? (
                   <div
                     className={`relative ${
-                      isScoringPhase && inThreeInARow
-                        ? inSelectedThreeInARow
-                          ? "ring-4 ring-green-500"
+                      isScoringPhase && isValidForScoring
+                        ? isSelectedForScoring
+                          ? "ring-4 ring-green-500 cursor-pointer"
                           : "ring-2 ring-yellow-400 cursor-pointer"
                         : isAwakenPhase && cell.hypnotized
                         ? selectedHypnotizedCard?.row === row && selectedHypnotizedCard?.col === col
@@ -222,8 +206,8 @@ export function GameField({
                         : ""
                     }`}
                     onClick={() => {
-                      if (isScoringPhase && threeInARowForPosition && onThreeInARowSelect) {
-                        onThreeInARowSelect(threeInARowForPosition);
+                      if (isScoringPhase && isValidForScoring && onScoringCardSelect) {
+                        onScoringCardSelect(row, col);
                       } else if (isAwakenPhase && cell.hypnotized && onHypnotizedCardSelect) {
                         onHypnotizedCardSelect(row, col);
                       }

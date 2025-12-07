@@ -86,26 +86,32 @@ export function detectThreeInARow(
   }
 
   // Check main diagonals (top-left to bottom-right)
-  for (let start = 0; start <= 2; start++) {
-    const positions: GridPosition[] = [
-      { row: start, col: start },
-      { row: start + 1, col: start + 1 },
-      { row: start + 2, col: start + 2 },
-    ];
-    if (isValidThreeInARow(grid, positions, playerId, playerIdMap)) {
-      sets.push(positions);
+  // Check all possible starting positions for 3-in-a-row diagonals
+  for (let row = 0; row <= 2; row++) {
+    for (let col = 0; col <= 2; col++) {
+      const positions: GridPosition[] = [
+        { row, col },
+        { row: row + 1, col: col + 1 },
+        { row: row + 2, col: col + 2 },
+      ];
+      if (isValidThreeInARow(grid, positions, playerId, playerIdMap)) {
+        sets.push(positions);
+      }
     }
   }
 
   // Check anti-diagonals (top-right to bottom-left)
-  for (let start = 0; start <= 2; start++) {
-    const positions: GridPosition[] = [
-      { row: start, col: 4 - start },
-      { row: start + 1, col: 3 - start },
-      { row: start + 2, col: 2 - start },
-    ];
-    if (isValidThreeInARow(grid, positions, playerId, playerIdMap)) {
-      sets.push(positions);
+  // Check all possible starting positions for 3-in-a-row anti-diagonals
+  for (let row = 0; row <= 2; row++) {
+    for (let col = 2; col <= 4; col++) {
+      const positions: GridPosition[] = [
+        { row, col },
+        { row: row + 1, col: col - 1 },
+        { row: row + 2, col: col - 2 },
+      ];
+      if (isValidThreeInARow(grid, positions, playerId, playerIdMap)) {
+        sets.push(positions);
+      }
     }
   }
 

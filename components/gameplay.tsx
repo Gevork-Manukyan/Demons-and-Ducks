@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { OpponentHand } from "@/components/opponent-hand";
 import { GameField } from "@/components/game-field";
 import { PlayerHand } from "@/components/player-hand";
@@ -59,7 +59,7 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
   const cardToConfirm = selectedCard && (selectedCard.type === "magic" || selectedCard.type === "instant") ? selectedCard : null;
   const opponentHandCount = gameState.opponentHandCount ?? initialOpponentHandCount;
   const [availableThreeInARows, setAvailableThreeInARows] = useState<Array<Array<{row: number, col: number}>>>([]);
-  const [selectedThreeInARow, setSelectedThreeInARow] = useState<Array<{row: number, col: number}> | null>(null);
+  const [selectedScoringCards, setSelectedScoringCards] = useState<Array<{row: number, col: number}>>([]);
   const [selectedHypnotizedCard, setSelectedHypnotizedCard] = useState<{row: number, col: number} | null>(null);
   const [selectedDiscardCards, setSelectedDiscardCards] = useState<number[]>([]);
 
@@ -67,21 +67,37 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
   const currentPhase = gameState.currentPhase;
   const isAwakenPhase = currentPhase === "AWAKEN" && isMyTurn;
 
-  // Fetch hand when game status becomes IN_PROGRESS
-  useEffect(() => {
-    if (gameState.status === "IN_PROGRESS" && hand.length === 0) {
-      const fetchHand = async () => {
-        const handResult = await getPlayerHand(gameId);
-        if (isActionSuccess(handResult)) {
-          setHand(handResult.data);
-        } else {
-          console.error("Failed to fetch hand:", handResult.error);
-        }
-      };
+  // Track last gameState object reference to detect stream updates
+  const lastGameStateRef = useRef<GameState | null>(null);
+  const handLengthRef = useRef(hand.length);
 
-      fetchHand();
+  // Update hand length ref when hand changes
+  useEffect(() => {
+    handLengthRef.current = hand.length;
+  }, [hand.length]);
+
+  // Fetch hand when game status becomes IN_PROGRESS or when gameState updates from stream
+  useEffect(() => {
+    if (gameState.status === "IN_PROGRESS") {
+      // Refetch hand whenever gameState object changes (stream update) or if hand is empty
+      // The stream sends updates when hand changes, so we refetch on any gameState update
+      const gameStateChanged = lastGameStateRef.current !== gameState;
+      
+      if (gameStateChanged || handLengthRef.current === 0) {
+        const fetchHand = async () => {
+          const handResult = await getPlayerHand(gameId);
+          if (isActionSuccess(handResult)) {
+            setHand(handResult.data);
+            lastGameStateRef.current = gameState;
+          } else {
+            console.error("Failed to fetch hand:", handResult.error);
+          }
+        };
+
+        fetchHand();
+      }
     }
-  }, [gameState.status, gameId, hand.length]);
+  }, [gameState, gameId]);
 
   // Listen for grid updates from server
   useEffect(() => {
@@ -110,6 +126,9 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     }
   }, [gameState.gridData, updateGrid]);
 
+  // Track previous phase for cleanup
+  const prevPhaseRef = useRef(currentPhase);
+  
   // Fetch available three-in-a-rows when in SCORING phase
   useEffect(() => {
     if (currentPhase === "SCORING" && isMyTurn) {
@@ -122,14 +141,21 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
       fetchThreeInARows();
     }
     
-    return () => {
-      setAvailableThreeInARows([]);
-      setSelectedThreeInARow(null);
-    };
+    // Reset state when leaving SCORING phase
+    const wasScoring = prevPhaseRef.current === "SCORING";
+    const isScoring = currentPhase === "SCORING";
+    if (wasScoring && !isScoring) {
+      const timeoutId = setTimeout(() => {
+        setAvailableThreeInARows([]);
+        setSelectedScoringCards([]);
+      }, 0);
+      return () => clearTimeout(timeoutId);
+    }
+    
+    prevPhaseRef.current = currentPhase;
   }, [currentPhase, isMyTurn, gameId]);
 
   // Reset awaken selections when phase changes away from AWAKEN
-  const prevPhaseRef = useRef(currentPhase);
   useEffect(() => {
     const wasAwaken = prevPhaseRef.current === "AWAKEN";
     const isAwaken = currentPhase === "AWAKEN";
@@ -142,7 +168,6 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
       }, 0);
       return () => clearTimeout(timeoutId);
     }
-    prevPhaseRef.current = currentPhase;
   }, [currentPhase]);
 
   const handleCardPlace = async (card: CardType, row: number, col: number) => {
@@ -275,14 +300,64 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     }
   };
 
+  const handleScoringCardSelect = (row: number, col: number) => {
+    if (!isMyTurn || currentPhase !== "SCORING") return;
+    
+    setSelectedScoringCards((current) => {
+      // Check if already selected
+      const index = current.findIndex((pos) => pos.row === row && pos.col === col);
+      if (index >= 0) {
+        // Deselect
+        return current.filter((_, i) => i !== index);
+      } else if (current.length < 3) {
+        // Add if less than 3
+        return [...current, { row, col }];
+      }
+      // Already have 3, don't add more
+      return current;
+    });
+  };
+
+  // Check if selected cards form a valid three-in-a-row
+  const isValidSelection = useMemo(() => {
+    if (selectedScoringCards.length !== 3) return false;
+    
+    // Check if the selected cards are part of any valid three-in-a-row set
+    return availableThreeInARows.some((threeInARow) => {
+      const threeInARowSet = new Set(threeInARow.map((p) => `${p.row},${p.col}`));
+      const selectedSet = new Set(selectedScoringCards.map((p) => `${p.row},${p.col}`));
+      
+      // Check if all selected positions are in this three-in-a-row
+      return selectedScoringCards.every((pos) => 
+        threeInARowSet.has(`${pos.row},${pos.col}`)
+      ) && threeInARowSet.size === selectedSet.size;
+    });
+  }, [selectedScoringCards, availableThreeInARows]);
+
   const handleScoreThreeInARow = async () => {
-    if (!selectedThreeInARow) return;
-    const result = await scoreThreeInARow(gameId, selectedThreeInARow);
+    if (selectedScoringCards.length !== 3) return;
+    if (!isValidSelection) {
+      console.error("Selected cards do not form a valid three-in-a-row");
+      return;
+    }
+    
+    const result = await scoreThreeInARow(gameId, selectedScoringCards);
     if (isActionError(result)) {
       console.error("Failed to score:", result.message);
     } else {
-      setSelectedThreeInARow(null);
+      setSelectedScoringCards([]);
+      // Refetch available three-in-a-rows after scoring
+      if (currentPhase === "SCORING" && isMyTurn) {
+        const fetchResult = await getAvailableThreeInARows(gameId);
+        if (isActionSuccess(fetchResult)) {
+          setAvailableThreeInARows(fetchResult.data);
+        }
+      }
     }
+  };
+
+  const handleClearScoringSelection = () => {
+    setSelectedScoringCards([]);
   };
 
   const handleEndTurn = async () => {
@@ -319,8 +394,8 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
           selectedCard={selectedCard}
           onCardPlace={handleCardPlace}
           availableThreeInARows={availableThreeInARows}
-          selectedThreeInARow={selectedThreeInARow}
-          onThreeInARowSelect={setSelectedThreeInARow}
+          selectedScoringCards={selectedScoringCards}
+          onScoringCardSelect={handleScoringCardSelect}
           isScoringPhase={currentPhase === "SCORING" && isMyTurn}
           isAwakenPhase={isAwakenPhase}
           selectedHypnotizedCard={selectedHypnotizedCard}
@@ -446,26 +521,42 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
                     {availableThreeInARows.length > 0 ? (
                       <>
                         <div className="text-sm mb-2">
-                          Found {availableThreeInARows.length} three-in-a-row{availableThreeInARows.length > 1 ? "s" : ""}
+                          Select 3 cards to score ({selectedScoringCards.length}/3)
                         </div>
-                        {availableThreeInARows.map((threeInARow, index) => (
-                          <Button
-                            key={index}
-                            onClick={() => setSelectedThreeInARow(threeInARow)}
-                            className="w-full"
-                            variant={selectedThreeInARow === threeInARow ? "default" : "outline"}
-                          >
-                            Select Set {index + 1}
-                          </Button>
-                        ))}
-                        {selectedThreeInARow && (
-                          <Button onClick={handleScoreThreeInARow} className="w-full">
-                            Score Selected Set
+                        {selectedScoringCards.length > 0 && (
+                          <div className="text-xs text-gray-600 p-2 bg-gray-50 rounded">
+                            Selected: {selectedScoringCards.map((pos, i) => 
+                              `(${pos.row},${pos.col})${i < selectedScoringCards.length - 1 ? ', ' : ''}`
+                            ).join('')}
+                          </div>
+                        )}
+                        {selectedScoringCards.length === 3 && (
+                          <>
+                            {!isValidSelection && (
+                              <div className="text-xs text-red-600 p-2 bg-red-50 rounded">
+                                Selected cards do not form a valid three-in-a-row
+                              </div>
+                            )}
+                            <Button 
+                              onClick={handleScoreThreeInARow} 
+                              className="w-full"
+                              disabled={!isValidSelection}
+                            >
+                              Score Selected Cards
+                            </Button>
+                          </>
+                        )}
+                        {selectedScoringCards.length > 0 && (
+                          <Button onClick={handleClearScoringSelection} className="w-full" variant="outline">
+                            Clear Selection
                           </Button>
                         )}
                         <Button onClick={handleEndTurn} className="w-full" variant="outline">
                           End Turn
                         </Button>
+                        <div className="text-xs text-gray-500 text-center">
+                          Click highlighted cards on the field to select them
+                        </div>
                       </>
                     ) : (
                       <Button onClick={handleEndTurn} className="w-full">

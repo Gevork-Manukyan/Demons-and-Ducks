@@ -69,6 +69,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         readyStatuses: Record<number, boolean>;
         gridData: string | null;
         opponentHandCount: number;
+        currentPhase: string;
+        currentTurnPlayerId: number | null;
+        playerScores: string;
+        playerHand: string;
+        playerDeck: string;
+        playerDiscardPile: string;
+        playerCurrentPoints: number;
       } | null = null;
 
       const pollGameState = async () => {
@@ -85,6 +92,25 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             });
             const currentGridData = data.gridData ? JSON.stringify(data.gridData) : null;
             const currentOpponentHandCount = data.opponentHandCount;
+            const currentPhase = data.currentPhase || "DRAW";
+            const currentTurnPlayerId = data.currentTurnPlayerId;
+            const currentPlayerScores = JSON.stringify(data.playerScores || []);
+
+            // Fetch current player data to track hand, deck, discardPile, and points
+            const currentGame = await prisma.game.findUnique({
+              where: { id: gameIdNum },
+              include: {
+                players: {
+                  where: { userId: userId },
+                },
+              },
+            });
+
+            const currentPlayer = currentGame?.players.find((p) => p.userId === userId);
+            const currentPlayerHand = currentPlayer ? JSON.stringify(currentPlayer.hand) : "";
+            const currentPlayerDeck = currentPlayer ? JSON.stringify(currentPlayer.deck) : "";
+            const currentPlayerDiscardPile = currentPlayer ? JSON.stringify(currentPlayer.discardPile) : "";
+            const currentPlayerCurrentPoints = currentPlayer?.currentPoints ?? 0;
 
             // Check if anything changed
             let hasChanged = false;
@@ -95,7 +121,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 currentPlayerCount !== lastState.playerCount ||
                 currentStatus !== lastState.status ||
                 currentGridData !== lastState.gridData ||
-                currentOpponentHandCount !== lastState.opponentHandCount
+                currentOpponentHandCount !== lastState.opponentHandCount ||
+                currentPhase !== lastState.currentPhase ||
+                currentTurnPlayerId !== lastState.currentTurnPlayerId ||
+                currentPlayerScores !== lastState.playerScores ||
+                currentPlayerHand !== lastState.playerHand ||
+                currentPlayerDeck !== lastState.playerDeck ||
+                currentPlayerDiscardPile !== lastState.playerDiscardPile ||
+                currentPlayerCurrentPoints !== lastState.playerCurrentPoints
               ) {
                 hasChanged = true;
               } else {
@@ -121,6 +154,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 readyStatuses: currentReadyStatuses,
                 gridData: currentGridData,
                 opponentHandCount: currentOpponentHandCount,
+                currentPhase: currentPhase,
+                currentTurnPlayerId: currentTurnPlayerId,
+                playerScores: currentPlayerScores,
+                playerHand: currentPlayerHand,
+                playerDeck: currentPlayerDeck,
+                playerDiscardPile: currentPlayerDiscardPile,
+                playerCurrentPoints: currentPlayerCurrentPoints,
               };
             } else {
               // Send heartbeat to keep connection alive

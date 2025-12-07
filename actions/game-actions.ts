@@ -664,13 +664,11 @@ export async function placeCardOnField(
       return actionSuccess(undefined);
     } else if (game.magicCardsPlayedThisTurn >= 2) {
       // Auto-advance to SCORING
-      const updatedGame = await prisma.game.findUnique({
-        where: { id: gameId },
-        include: { players: true },
-      });
-      if (updatedGame) {
-        return await advanceToNextPhaseInternal(updatedGame, player);
+      const refetchResult = await refetchGameAndPlayer(gameId, player.id);
+      if (refetchResult.error) {
+        return refetchResult;
       }
+      return await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
     }
 
     return actionSuccess(undefined);
@@ -838,13 +836,11 @@ export async function playMagicOrInstantCard(
 
     // If 2 magic cards played, auto-advance to SCORING
     if (newMagicCardsPlayed >= 2) {
-      const updatedGame = await prisma.game.findUnique({
-        where: { id: gameId },
-        include: { players: true },
-      });
-      if (updatedGame) {
-        return await advanceToNextPhaseInternal(updatedGame, player);
+      const refetchResult = await refetchGameAndPlayer(gameId, player.id);
+      if (refetchResult.error) {
+        return refetchResult;
       }
+      return await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
     }
 
     return actionSuccess(undefined);
@@ -855,6 +851,31 @@ export async function playMagicOrInstantCard(
       ERROR_CODES.UNKNOWN_ERROR
     );
   }
+}
+
+/**
+ * Helper function to refetch game and player after database updates
+ * Returns an error ActionResult if game or player not found, otherwise returns the updated data
+ */
+async function refetchGameAndPlayer(
+  gameId: number,
+  playerId: number
+): Promise<ActionResult<{ game: GameWithPlayers; player: Player }>> {
+  const updatedGame = await prisma.game.findUnique({
+    where: { id: gameId },
+    include: { players: true },
+  });
+
+  if (!updatedGame) {
+    return actionError("Game not found", ERROR_CODES.NOT_FOUND);
+  }
+
+  const updatedPlayer = updatedGame.players.find((p) => p.id === playerId);
+  if (!updatedPlayer) {
+    return actionError("Player not found", ERROR_CODES.NOT_FOUND);
+  }
+
+  return actionSuccess({ game: updatedGame, player: updatedPlayer });
 }
 
 /**
@@ -1095,8 +1116,14 @@ export async function drawCard(gameId: number): Promise<ActionResult<void>> {
       });
     }
 
+    // Refetch game and player to get updated data before advancing phase
+    const refetchResult = await refetchGameAndPlayer(gameId, player.id);
+    if (refetchResult.error) {
+      return refetchResult;
+    }
+
     // Auto-advance to AWAKEN phase (or ACTION if AWAKEN is skipped)
-    return await advanceToNextPhaseInternal(game, player);
+    return await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
   } catch (error) {
     console.error("[drawCard] unexpected error", error);
     return actionError("Could not draw card", ERROR_CODES.UNKNOWN_ERROR);
@@ -1217,16 +1244,12 @@ export async function awakenCard(
     ]);
 
     // Auto-advance to ACTION phase
-    const updatedGame = await prisma.game.findUnique({
-      where: { id: gameId },
-      include: { players: true },
-    });
-
-    if (!updatedGame) {
-      return actionError("Game not found", ERROR_CODES.NOT_FOUND);
+    const refetchResult = await refetchGameAndPlayer(gameId, player.id);
+    if (refetchResult.error) {
+      return refetchResult;
     }
 
-    return await advanceToNextPhaseInternal(updatedGame, player);
+    return await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
   } catch (error) {
     console.error("[awakenCard] unexpected error", error);
     return actionError("Could not awaken card", ERROR_CODES.UNKNOWN_ERROR);
@@ -1311,8 +1334,14 @@ export async function drawCardInActionPhase(
       });
     }
 
+    // Refetch game and player to get updated data before advancing phase
+    const refetchResult = await refetchGameAndPlayer(gameId, player.id);
+    if (refetchResult.error) {
+      return refetchResult;
+    }
+
     // Auto-advance to SCORING phase (or skip if no three-in-a-rows)
-    return await advanceToNextPhaseInternal(game, player);
+    return await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
   } catch (error) {
     console.error("[drawCardInActionPhase] unexpected error", error);
     return actionError("Could not draw card", ERROR_CODES.UNKNOWN_ERROR);
@@ -1478,6 +1507,38 @@ export async function scoreThreeInARow(
         where: { id: gameId },
         data: { status: "COMPLETED" },
       });
+      return actionSuccess(undefined);
+    }
+
+    // Refetch game and player to get updated data
+    const refetchResult = await refetchGameAndPlayer(gameId, player.id);
+    if (refetchResult.error) {
+      return refetchResult;
+    }
+
+    const { game: updatedGame, player: updatedPlayer } = refetchResult.data;
+
+    // Recalculate three-in-a-rows with updated grid
+    const recalculatedGridData = safeParseCardGrid(updatedGame.cardGrid);
+    if (recalculatedGridData && recalculatedGridData.length > 0) {
+      const recalculatedCardIdToCardMap = await createCardIdToCardMap(recalculatedGridData);
+      const recalculatedGrid = databaseFormatToGrid(recalculatedGridData, recalculatedCardIdToCardMap);
+      const recalculatedPlayerIdMap = createPlayerIdMap(recalculatedGridData);
+      
+      const remainingThreeInARows = detectThreeInARow(
+        recalculatedGrid,
+        updatedPlayer.id,
+        recalculatedPlayerIdMap
+      );
+
+      // If no more three-in-a-rows, advance to next turn
+      if (remainingThreeInARows.length === 0) {
+        return await endTurnInternal(updatedGame, updatedPlayer);
+      }
+      // Otherwise, stay in SCORING phase (no phase change needed)
+    } else {
+      // No cards left, advance to next turn
+      return await endTurnInternal(updatedGame, updatedPlayer);
     }
 
     return actionSuccess(undefined);

@@ -43,7 +43,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return new Response("Forbidden", { status: 403 });
   }
 
-  // Set up SSE headers
   const encoder = new TextEncoder();
   let intervalId: NodeJS.Timeout | null = null;
 
@@ -68,6 +67,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         playerCount: number;
         status: string;
         readyStatuses: Record<number, boolean>;
+        gridData: string | null;
       } | null = null;
 
       const pollGameState = async () => {
@@ -75,40 +75,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           const result = await getGameState(gameIdNum);
 
           if (isActionSuccess(result)) {
-            const data = result.data as unknown as {
-              gameCode: string;
-              status: string;
-              players: Array<{
-                id: number;
-                userId: number;
-                readyToStart: boolean;
-                user: {
-                  id: number;
-                  username: string;
-                };
-              }>;
-            };
+            const data = result.data;
             const currentPlayerCount = data.players.length;
             const currentStatus = data.status;
             const currentReadyStatuses: Record<number, boolean> = {};
             data.players.forEach((p) => {
               currentReadyStatuses[p.id] = p.readyToStart;
             });
+            const currentGridData = data.gridData ? JSON.stringify(data.gridData) : null;
 
             // Check if anything changed
             let hasChanged = false;
             if (!lastState) {
-              // First poll, always send update
               hasChanged = true;
             } else {
-              // Check for changes
               if (
                 currentPlayerCount !== lastState.playerCount ||
-                currentStatus !== lastState.status
+                currentStatus !== lastState.status ||
+                currentGridData !== lastState.gridData
               ) {
                 hasChanged = true;
               } else {
-                // Check if any ready status changed
                 for (const playerId in currentReadyStatuses) {
                   if (
                     currentReadyStatuses[playerId] !==
@@ -129,6 +116,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 playerCount: currentPlayerCount,
                 status: currentStatus,
                 readyStatuses: currentReadyStatuses,
+                gridData: currentGridData,
               };
             } else {
               // Send heartbeat to keep connection alive

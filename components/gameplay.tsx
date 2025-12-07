@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { OpponentHand } from "@/components/opponent-hand";
 import { GameField } from "@/components/game-field";
 import { PlayerHand } from "@/components/player-hand";
 import { useCardPlacement } from "@/hooks/use-card-placement";
-import { getPlayerHand, getOpponentHandCount, getPlayerHandCardIds, placeCardOnField, updateCardHypnotizedState } from "@/actions/game-actions";
+import { getPlayerHand, getOpponentHandCount, getPlayerHandCardIds, placeCardOnField, updateCardHypnotizedState, createCardIdToCardMap } from "@/actions/game-actions";
 import { isActionSuccess, isActionError } from "@/lib/errors";
 import type { GameState } from "@/actions/game-actions";
 import type { Card as CardType } from "@/lib/card-types";
+import { databaseFormatToGrid, createEmptyGrid, updateGridValidPositions } from "@/lib/game-field-utils";
 import type { GameGrid } from "@/lib/game-field-utils";
 
 type GameplayProps = {
@@ -25,9 +26,10 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     (player) => player.userId !== currentUserId
   );
 
-  const { selectedCard, grid, selectCard, placeCard, updateHypnotized } = useCardPlacement(initialGrid);
+  const { selectedCard, grid, selectCard, placeCard, updateHypnotized, updateGrid } = useCardPlacement(initialGrid);
   const [hand, setHand] = useState<CardType[]>(initialHand);
   const [opponentHandCount, setOpponentHandCount] = useState<number>(initialOpponentHandCount);
+  const lastGridDataRef = useRef<string | null>(null);
 
   // Fetch hand and opponent hand count when game status becomes IN_PROGRESS
   useEffect(() => {
@@ -54,6 +56,33 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
       fetchOpponentHandCount();
     }
   }, [gameState.status, gameId, hand.length]);
+
+  // Listen for grid updates from server
+  useEffect(() => {
+    const currentGridDataString = JSON.stringify(gameState.gridData);
+    
+    if (currentGridDataString !== lastGridDataRef.current) {
+      lastGridDataRef.current = currentGridDataString;
+
+      const updateGridFromServer = async () => {
+        try {
+          // If there's grid data, convert it and update the grid
+          if (gameState.gridData && gameState.gridData.length > 0) {
+            const cardIdToCardMap = await createCardIdToCardMap(gameState.gridData);
+            const newGrid = databaseFormatToGrid(gameState.gridData, cardIdToCardMap);
+            updateGrid(newGrid);
+          } else {
+            const emptyGrid = updateGridValidPositions(createEmptyGrid());
+            updateGrid(emptyGrid);
+          }
+        } catch (error) {
+          console.error("Failed to update grid from server:", error);
+        }
+      };
+
+      updateGridFromServer();
+    }
+  }, [gameState.gridData, updateGrid]);
 
   const handleCardPlace = async (card: CardType, row: number, col: number) => {
     const cardIndex = hand.findIndex(

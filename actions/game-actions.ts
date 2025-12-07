@@ -141,6 +141,7 @@ export type GameState = {
       username: string;
     };
   }>;
+  gridData: DatabaseGridFormat;
 };
 
 export async function getGameState(
@@ -187,6 +188,8 @@ export async function getGameState(
       );
     }
 
+    const gridData = safeParseCardGrid(game.cardGrid) ?? null;
+
     return actionSuccess({
       gameCode: game.gameCode,
       status: game.status,
@@ -199,6 +202,7 @@ export async function getGameState(
           username: p.user.username,
         },
       })),
+      gridData,
     });
   } catch (error) {
     console.error("[getGameState] unexpected error", error);
@@ -462,6 +466,8 @@ export async function markPlayerReady(
       updatedGame.status = "IN_PROGRESS";
     }
 
+    const gridData = safeParseCardGrid(updatedGame.cardGrid) ?? null;
+
     return actionSuccess({
       gameCode: updatedGame.gameCode,
       status: updatedGame.status,
@@ -474,6 +480,7 @@ export async function markPlayerReady(
           username: p.user.username,
         },
       })),
+      gridData,
     });
   } catch (error) {
     console.error("[markPlayerReady] unexpected error", error);

@@ -17,6 +17,7 @@ type UseCardPlacementReturn = {
   placeCard: (card: Card, row: number, col: number) => void;
   clearSelection: () => void;
   updateHypnotized: (row: number, col: number, hypnotized: boolean) => void;
+  updateGrid: (newGrid: GameGrid) => void;
 };
 
 export function useCardPlacement(initialGrid?: GameGrid): UseCardPlacementReturn {
@@ -46,6 +47,10 @@ export function useCardPlacement(initialGrid?: GameGrid): UseCardPlacementReturn
     setGrid((currentGrid) => updateCardHypnotized(currentGrid, { row, col }, hypnotized));
   }, []);
 
+  const updateGrid = useCallback((newGrid: GameGrid) => {
+    setGrid(newGrid);
+  }, []);
+
   return {
     selectedCard,
     grid,
@@ -53,6 +58,7 @@ export function useCardPlacement(initialGrid?: GameGrid): UseCardPlacementReturn
     placeCard,
     clearSelection,
     updateHypnotized,
+    updateGrid,
   };
 }
 

@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { GameClient } from "./game-client";
-import { convertPrismaCardToCardType, calculateOpponentHandCount } from "@/lib/card-utils";
+import { calculateOpponentHandCount, convertCardRecordsToHand } from "@/lib/card-utils";
 import { parseCardIdArray, safeParseCardGrid } from "@/lib/zod-schemas";
 import { databaseFormatToGrid } from "@/lib/game-field-utils";
 import { createCardIdToCardMap } from "@/actions/game-actions";
@@ -66,7 +66,7 @@ export default async function GamePage({ params }: GamePageProps) {
       where: { id: { in: handCardIds } },
     });
     
-    initialHand = cardRecords.map(convertPrismaCardToCardType);
+    initialHand = convertCardRecordsToHand(cardRecords, handCardIds);
   }
 
   const opponentHandCount = calculateOpponentHandCount(game.players, userId);

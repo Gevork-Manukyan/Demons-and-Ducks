@@ -13,7 +13,7 @@ import {
 import { ERROR_CODES } from "@/lib/error-codes";
 import { initializeGame } from "@/lib/game-initialization";
 import { parseCardIdArray, safeParseCardGrid } from "@/lib/zod-schemas";
-import { convertPrismaCardToCardType, calculateOpponentHandCount } from "@/lib/card-utils";
+import { convertPrismaCardToCardType, calculateOpponentHandCount, convertCardRecordsToHand } from "@/lib/card-utils";
 import type { Card } from "@/lib/card-types";
 import {
   databaseFormatToGrid,
@@ -322,49 +322,6 @@ export async function getPlayerHandCardIds(
   }
 }
 
-export async function findCardIdInHand(
-  gameId: number,
-  cardName: string,
-  cardDeck: string,
-  cardType: string,
-  isBasic?: boolean
-): Promise<ActionResult<number | null>> {
-  try {
-    const result = await getGameAndPlayer(
-      gameId,
-      "You must be logged in to find a card in your hand"
-    );
-
-    if (result.error) {
-      return result;
-    }
-
-    const { player } = result.data;
-    const handCardIds = parseCardIdArray(player.hand);
-
-    if (handCardIds.length === 0) {
-      return actionSuccess(null);
-    }
-
-    const cardRecords = await prisma.card.findMany({
-      where: { id: { in: handCardIds } },
-    });
-
-    const matchingCard = cardRecords.find(
-      (dbCard) =>
-        dbCard.name === cardName &&
-        dbCard.deck === cardDeck &&
-        dbCard.type === cardType &&
-        (cardType !== "creature" || dbCard.isBasic === isBasic)
-    );
-
-    return actionSuccess(matchingCard?.id ?? null);
-  } catch (error) {
-    console.error("[findCardIdInHand] unexpected error", error);
-    return actionError("Could not find card in hand", ERROR_CODES.UNKNOWN_ERROR);
-  }
-}
-
 export async function getPlayerHand(
   gameId: number
 ): Promise<ActionResult<Card[]>> {
@@ -389,7 +346,7 @@ export async function getPlayerHand(
       where: { id: { in: handCardIds } },
     });
 
-    const hand = cardRecords.map(convertPrismaCardToCardType);
+    const hand = convertCardRecordsToHand(cardRecords, handCardIds);
 
     return actionSuccess(hand);
   } catch (error) {
@@ -560,60 +517,6 @@ export async function createCardIdToCardMap(
   return cardIdToCardMap;
 }
 
-/**
- * Helper function to collect all cards from a GameGrid
- */
-function collectCardsFromGrid(grid: GameGrid): Card[] {
-  const cards: Card[] = [];
-  for (let r = 0; r < 5; r++) {
-    for (let c = 0; c < 5; c++) {
-      if (grid[r][c].card !== null) {
-        cards.push(grid[r][c].card!);
-      }
-    }
-  }
-  return cards;
-}
-
-/**
- * Helper function to convert a GameGrid to database format
- * Handles card ID mapping and conversion
- */
-async function gridToDatabaseFormatWithMapping(
-  grid: GameGrid
-): Promise<DatabaseGridFormat> {
-  const allCardsInGrid = collectCardsFromGrid(grid);
-  const cardToIdMap = await createCardToIdMap(allCardsInGrid);
-  return gridToDatabaseFormat(grid, (card) => cardToIdMap.get(card)!);
-}
-
-/**
- * Helper function to create a map from Card to cardId by matching properties
- */
-async function createCardToIdMap(
-  cards: Card[]
-): Promise<Map<Card, number>> {
-  const cardMap = new Map<Card, number>();
-
-  const allCards = await prisma.card.findMany();
-
-  for (const card of cards) {
-    const matchingCard = allCards.find(
-      (dbCard) =>
-        dbCard.name === card.name &&
-        dbCard.deck === card.deck &&
-        dbCard.type === card.type &&
-        (card.type !== "creature" || dbCard.isBasic === card.isBasic)
-    );
-
-    if (matchingCard) {
-      cardMap.set(card, matchingCard.id);
-    }
-  }
-
-  return cardMap;
-}
-
 export async function placeCardOnField(
   gameId: number,
   cardId: number,
@@ -695,7 +598,7 @@ export async function placeCardOnField(
       cardToPlace
     );
 
-    const updatedGridData = await gridToDatabaseFormatWithMapping(updatedGrid);
+    const updatedGridData = gridToDatabaseFormat(updatedGrid, (card) => card.id);
     const updatedHand = handCardIds.filter((id) => id !== cardId);
 
     // Update game and player in a transaction
@@ -774,7 +677,7 @@ export async function updateCardHypnotizedState(
       hypnotized
     );
 
-    const updatedGridData = await gridToDatabaseFormatWithMapping(updatedGrid);
+    const updatedGridData = gridToDatabaseFormat(updatedGrid, (card) => card.id);
 
     // Update game
     await prisma.game.update({

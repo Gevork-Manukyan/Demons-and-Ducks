@@ -5,7 +5,7 @@ import { OpponentHand } from "@/components/opponent-hand";
 import { GameField } from "@/components/game-field";
 import { PlayerHand } from "@/components/player-hand";
 import { useCardPlacement } from "@/hooks/use-card-placement";
-import { getPlayerHand, placeCardOnField, updateCardHypnotizedState, createCardIdToCardMap, playMagicOrInstantCard, findCardIdInHand } from "@/actions/game-actions";
+import { getPlayerHand, placeCardOnField, updateCardHypnotizedState, createCardIdToCardMap, playMagicOrInstantCard } from "@/actions/game-actions";
 import { isActionSuccess, isActionError } from "@/lib/errors";
 import type { GameState } from "@/actions/game-actions";
 import type { Card as CardType } from "@/lib/card-types";
@@ -90,45 +90,18 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
       return;
     }
 
-    // Find the card ID by matching properties
-    const cardIdResult = await findCardIdInHand(
-      gameId,
-      card.name,
-      card.deck,
-      card.type,
-      card.isBasic
-    );
-
-    if (!isActionSuccess(cardIdResult)) {
-      console.error("Failed to find card ID:", cardIdResult.error);
-      return;
-    }
-
-    const cardId = cardIdResult.data;
-    if (cardId === null) {
-      console.error("Card not found in hand");
-      return;
-    }
-
-    // Find the card index in the local hand for UI updates
-    const cardIndex = hand.findIndex(
-      (c) =>
-        c.name === card.name &&
-        c.deck === card.deck &&
-        c.type === card.type &&
-        (c.type !== "creature" || 
-         (c.type === "creature" && card.type === "creature" && c.isBasic === card.isBasic))
-    );
-
-    const result = await placeCardOnField(gameId, cardId, row, col);
+    // Update local state only if server action succeeds
+    const result = await placeCardOnField(gameId, card.id, row, col);
     
     if (isActionError(result)) {
       console.error("Failed to place card:", result.message);
       return;
     }
 
-    // Update local state only if server action succeeds
     placeCard(card, row, col);
+
+    // Find the card index in the local hand for UI updates
+    const cardIndex = hand.findIndex((c) => c.id === card.id);
     setHand((currentHand) => currentHand.filter((_, index) => index !== cardIndex));
   };
 
@@ -146,37 +119,11 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
   const handleConfirmPlayCard = async () => {
     if (!cardToConfirm) return;
 
-    const cardIdResult = await findCardIdInHand(
-      gameId,
-      cardToConfirm.name,
-      cardToConfirm.deck,
-      cardToConfirm.type,
-      undefined
-    );
-
-    if (!isActionSuccess(cardIdResult)) {
-      console.error("Failed to find card ID:", cardIdResult.error);
-      clearSelection();
-      return;
-    }
-
-    const cardId = cardIdResult.data;
-    if (cardId === null) {
-      console.error("Card not found in hand");
-      clearSelection();
-      return;
-    }
-
     // Find the card index in the local hand for UI updates
-    const cardIndex = hand.findIndex(
-      (c) =>
-        c.name === cardToConfirm.name &&
-        c.deck === cardToConfirm.deck &&
-        c.type === cardToConfirm.type
-    );
+    const cardIndex = hand.findIndex((c) => c.id === cardToConfirm.id);
 
     // Call server action to play card
-    const result = await playMagicOrInstantCard(gameId, cardId);
+    const result = await playMagicOrInstantCard(gameId, cardToConfirm.id);
     
     if (isActionError(result)) {
       console.error("Failed to play card:", result.message);

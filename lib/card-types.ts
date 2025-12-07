@@ -19,6 +19,7 @@ export type CardEffect = AbilityType[];
 export type CardType = "creature" | "magic" | "instant";
 
 type BaseCard = {
+  id: number;
   name: string;
   image: string;
   effect: CardEffect;

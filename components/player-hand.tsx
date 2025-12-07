@@ -19,10 +19,7 @@ export function PlayerHand({ hand, selectedCard, onCardSelect }: PlayerHandProps
           </p>
         ) : (
           hand.map((card, index) => {
-            const isSelected = selectedCard !== null && 
-              selectedCard.name === card.name && 
-              selectedCard.deck === card.deck &&
-              selectedCard.type === card.type;
+            const isSelected = selectedCard !== null && selectedCard.id === card.id;
             
             return (
               <GameCard

@@ -16,34 +16,41 @@ export function convertPrismaCardToCardType(card: PrismaCard): Card {
   const deck = parseDeckType(card.deck);
   const type = parseCardType(card.type);
 
+  const returnObj = {
+    id: card.id,
+    name: card.name,
+    image: card.image,
+    effect,
+    deck
+  }
+
   // Handle different card types
   if (type === "creature") {
-    return {
-      name: card.name,
-      image: card.image,
-      effect: effect,
-      deck: deck,
-      type: "creature" as const,
-      isBasic: card.isBasic ?? false, // Default to false if null
-    };
+    return {...returnObj, type: "creature" as const, isBasic: card.isBasic ?? false};
   } else if (type === "magic") {
-    return {
-      name: card.name,
-      image: card.image,
-      effect: effect,
-      deck: deck,
-      type: "magic" as const,
-    };
+    return {...returnObj, type: "magic" as const};
   } else {
-    // instant
-    return {
-      name: card.name,
-      image: card.image,
-      effect: effect,
-      deck: deck,
-      type: "instant" as const,
-    };
+    return {...returnObj, type: "instant" as const};
   }
+}
+
+/**
+ * Helper function to convert card records to Card array preserving handCardIds order
+ */
+export function convertCardRecordsToHand(
+  cardRecords: PrismaCard[],
+  handCardIds: number[]
+): Card[] {
+  // Create a Map from card ID to card record for efficient lookup
+  const cardIdToRecordMap = new Map(cardRecords.map(record => [record.id, record]));
+
+  // Build the hand array in the same order as handCardIds
+  return handCardIds
+    .map(cardId => {
+      const record = cardIdToRecordMap.get(cardId);
+      return record ? convertPrismaCardToCardType(record) : null;
+    })
+    .filter((card): card is Card => card !== null);
 }
 
 /**

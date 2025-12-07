@@ -75,7 +75,7 @@ export default async function GamePage({ params }: GamePageProps) {
 
   // Load grid from database
   let initialGrid: GameGrid | undefined = undefined;
-  const gridData = safeParseCardGrid(game.cardGrid);
+  const gridData = safeParseCardGrid(game.cardGrid) ?? null;
   
   if (gridData && gridData.length > 0) {
     const cardIdToCardMap = await createCardIdToCardMap(gridData);
@@ -108,6 +108,7 @@ export default async function GamePage({ params }: GamePageProps) {
                 username: p.user.username,
               },
             })),
+            gridData,
           }}
           currentUserId={userId}
           initialHand={initialHand}

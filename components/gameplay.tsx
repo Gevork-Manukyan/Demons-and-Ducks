@@ -82,7 +82,7 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
   const isActionPhase = currentPhase === "ACTION" && isMyTurn;
   const canPlaceCreature = isActionPhase && (
     (!gameState.creatureCardPlayedThisTurn && gameState.magicCardsPlayedThisTurn === 0) ||
-    (gameState.summonUsedThisTurn && gameState.creatureCardPlayedThisTurn)
+    gameState.summonUsedThisTurn
   );
   const canPlayMagic = isActionPhase && !gameState.creatureCardPlayedThisTurn && gameState.magicCardsPlayedThisTurn < 2;
 
@@ -212,6 +212,11 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     // Find the card index in the local hand for UI updates
     const cardIndex = hand.findIndex((c) => c.id === card.id);
     setHand((currentHand) => currentHand.filter((_, index) => index !== cardIndex));
+
+    // Check for pending effects that need selection
+    if (isActionSuccess(result) && result.data.length > 0) {
+      setPendingEffects(result.data);
+    }
   };
 
   const handleConfirmPlayCard = async () => {
@@ -441,13 +446,16 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
     const currentEffect = pendingEffects[0];
     let result: ActionResult<void>;
 
+    const drawCount = currentEffect.drawCount;
+    
     if (currentEffect.type === "destroy") {
       if (!selectedEffectTarget) return;
       result = await resolveDestroyEffect(
         gameId,
         currentEffect.cardId,
         selectedEffectTarget.row,
-        selectedEffectTarget.col
+        selectedEffectTarget.col,
+        drawCount
       );
     } else if (currentEffect.type === "repel") {
       if (!selectedEffectTarget) return;
@@ -455,7 +463,8 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
         gameId,
         currentEffect.cardId,
         selectedEffectTarget.row,
-        selectedEffectTarget.col
+        selectedEffectTarget.col,
+        drawCount
       );
     } else if (currentEffect.type === "hypnotize") {
       if (!selectedEffectTarget) return;
@@ -463,7 +472,8 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
         gameId,
         currentEffect.cardId,
         selectedEffectTarget.row,
-        selectedEffectTarget.col
+        selectedEffectTarget.col,
+        drawCount
       );
     } else if (currentEffect.type === "swap") {
       if (selectedEffectTargets.length !== 2) return;
@@ -473,7 +483,8 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
         selectedEffectTargets[0].row,
         selectedEffectTargets[0].col,
         selectedEffectTargets[1].row,
-        selectedEffectTargets[1].col
+        selectedEffectTargets[1].col,
+        drawCount
       );
     } else if (currentEffect.type === "displace") {
       if (!displaceSource || !selectedEffectTarget) return;
@@ -483,7 +494,8 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
         displaceSource.row,
         displaceSource.col,
         selectedEffectTarget.row,
-        selectedEffectTarget.col
+        selectedEffectTarget.col,
+        drawCount
       );
     } else {
       return;
@@ -500,6 +512,20 @@ export function Gameplay({ gameState, currentUserId, gameId, initialHand, initia
       setPendingEffects(remainingEffects);
     } else {
       setPendingEffects([]);
+      // After resolving all effects, check if phase should advance
+      // Phase should advance if:
+      // 1. This was the last effect
+      // 2. We're still in ACTION phase
+      // 3. Either: 2 magic cards were played OR a creature was played (normal flow)
+      // 4. No summon is available (summon would allow placing a creature)
+      if (
+        currentPhase === "ACTION" &&
+        isMyTurn &&
+        !gameState.summonUsedThisTurn &&
+        (gameState.magicCardsPlayedThisTurn >= 2 || gameState.creatureCardPlayedThisTurn)
+      ) {
+        await handleEndActionPhase();
+      }
     }
     setSelectedEffectTarget(null);
     setSelectedEffectTargets([]);

@@ -517,7 +517,7 @@ export async function placeCardOnField(
   cardId: number,
   row: number,
   col: number
-): Promise<ActionResult<void>> {
+): Promise<ActionResult<PendingEffect[]>> {
   try {
     const result = await getGameAndPlayer(
       gameId,
@@ -539,8 +539,8 @@ export async function placeCardOnField(
     }
 
     // Validate creature card restrictions
-    // If summon was used, allow placing basic creature even if creature already played
-    const isSummonPlacement = game.summonUsedThisTurn && game.creatureCardPlayedThisTurn;
+    // If summon was used, allow placing basic creature even if creature already played or magic cards were played
+    const isSummonPlacement = game.summonUsedThisTurn;
     
     if (game.creatureCardPlayedThisTurn && !isSummonPlacement) {
       return actionError(
@@ -557,7 +557,7 @@ export async function placeCardOnField(
     }
 
     // Verify the card is in the player's hand
-    const handCardIds = parseCardIdArray(player.hand);
+    let handCardIds = parseCardIdArray(player.hand);
     if (!handCardIds.includes(cardId)) {
       return actionError(
         "Card is not in your hand",
@@ -623,6 +623,73 @@ export async function placeCardOnField(
       }
     }
 
+    // Parse and process card effects
+    const effects = parseCardEffect(cardRecord.effect);
+    let totalDrawCount = 0;
+    const pendingEffects: PendingEffect[] = [];
+    let hasSelectionEffects = false;
+
+    // First pass: collect draw counts and identify selection effects
+    for (const effect of effects) {
+      if (effect === "draw1") {
+        totalDrawCount += 1;
+      } else if (effect === "draw2") {
+        totalDrawCount += 2;
+      } else if (effect === "draw3") {
+        totalDrawCount += 3;
+      } else if (effect === "destroy" || effect === "repel" || effect === "displace" || effect === "swap" || effect === "hypnotize") {
+        hasSelectionEffects = true;
+      }
+    }
+
+    // Second pass: validate and add resolvable selection effects
+    // For creature cards, effects apply to other cards on the field, so validate against current grid
+    for (const effect of effects) {
+      if (effect === "destroy") {
+        if (await canResolveDestroyEffect(game, player)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      } else if (effect === "repel") {
+        if (await canResolveRepelEffect(game)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      } else if (effect === "displace") {
+        if (await canResolveDisplaceEffect(game)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      } else if (effect === "swap") {
+        if (await canResolveSwapEffect(game)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      } else if (effect === "hypnotize") {
+        if (await canResolveHypnotizeEffect(game)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      }
+    }
+
+    // Update hasSelectionEffects based on actual pending effects
+    hasSelectionEffects = pendingEffects.length > 0;
+
+    // If there are selection effects, defer draw until after selection is resolved
+    // Otherwise, draw immediately
+    if (totalDrawCount > 0 && !hasSelectionEffects) {
+      const drawResult = await drawCardsForPlayer(player.id, totalDrawCount);
+      if (drawResult.error) {
+        return drawResult;
+      }
+      // Refetch player to get updated hand after drawing
+      const updatedPlayer = await prisma.player.findUnique({
+        where: { id: player.id },
+      });
+      if (updatedPlayer) {
+        handCardIds = parseCardIdArray(updatedPlayer.hand);
+      }
+    } else if (totalDrawCount > 0 && hasSelectionEffects && pendingEffects.length > 0) {
+      // Add draw count to the first pending effect
+      pendingEffects[0].drawCount = totalDrawCount;
+    }
+
     const updatedGrid = placeCardOnGrid(
       currentGrid,
       { row, col },
@@ -652,12 +719,22 @@ export async function placeCardOnField(
       }),
     ]);
 
-    // Auto-advance to SCORING phase after placing creature
+    // If there are pending effects requiring user selection, do NOT advance phase
+    // Player must resolve all pending effects before phase can advance
+    if (pendingEffects.length > 0) {
+      return actionSuccess(pendingEffects);
+    }
+
+    // Auto-advance to SCORING phase after placing creature (only if no pending effects)
     const refetchResult = await refetchGameAndPlayer(gameId, player.id);
     if (refetchResult.error) {
       return refetchResult;
     }
-    return await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
+    const advanceResult = await advanceToNextPhaseInternal(refetchResult.data.game, refetchResult.data.player);
+    if (advanceResult.error) {
+      return advanceResult;
+    }
+    return actionSuccess([]);
   } catch (error) {
     console.error("[placeCardOnField] unexpected error", error);
     return actionError(
@@ -745,6 +822,7 @@ export async function updateCardHypnotizedState(
 export type PendingEffect = {
   type: AbilityType;
   cardId: number;
+  drawCount?: number; // Draw count to process after selection effect is resolved
 };
 
 export async function playMagicOrInstantCard(
@@ -787,7 +865,7 @@ export async function playMagicOrInstantCard(
       );
     }
 
-    const handCardIds = parseCardIdArray(player.hand);
+    let handCardIds = parseCardIdArray(player.hand);
     if (!handCardIds.includes(cardId)) {
       return actionError(
         "Card is not in your hand",
@@ -810,10 +888,6 @@ export async function playMagicOrInstantCard(
       );
     }
 
-    const updatedHand = handCardIds.filter((id) => id !== cardId);
-    const discardCardIds = parseCardIdArray(player.discardPile);
-    const updatedDiscardPile = [...discardCardIds, cardId];
-
     // Parse effects
     const effects = parseCardEffect(cardRecord.effect);
 
@@ -821,7 +895,9 @@ export async function playMagicOrInstantCard(
     let totalDrawCount = 0;
     let hasSummon = false;
     const pendingEffects: PendingEffect[] = [];
+    let hasSelectionEffects = false;
 
+    // First pass: collect draw counts and identify selection effects
     for (const effect of effects) {
       if (effect === "draw1") {
         totalDrawCount += 1;
@@ -832,28 +908,63 @@ export async function playMagicOrInstantCard(
       } else if (effect === "summon") {
         hasSummon = true;
       } else if (effect === "destroy" || effect === "repel" || effect === "displace" || effect === "swap" || effect === "hypnotize") {
-        // Effects requiring selection
-        pendingEffects.push({ type: effect, cardId });
+        hasSelectionEffects = true;
       }
       // TODO: negate is skipped for now
     }
 
-    // Draw cards if needed
-    if (totalDrawCount > 0) {
+    // Second pass: validate and add resolvable selection effects
+    for (const effect of effects) {
+      if (effect === "destroy") {
+        if (await canResolveDestroyEffect(game, player)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      } else if (effect === "repel") {
+        if (await canResolveRepelEffect(game)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      } else if (effect === "displace") {
+        if (await canResolveDisplaceEffect(game)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      } else if (effect === "swap") {
+        if (await canResolveSwapEffect(game)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      } else if (effect === "hypnotize") {
+        if (await canResolveHypnotizeEffect(game)) {
+          pendingEffects.push({ type: effect, cardId });
+        }
+      }
+    }
+
+    // Update hasSelectionEffects based on actual pending effects
+    hasSelectionEffects = pendingEffects.length > 0;
+
+    // If there are selection effects, defer draw until after selection is resolved
+    // Otherwise, draw immediately
+    if (totalDrawCount > 0 && !hasSelectionEffects) {
       const drawResult = await drawCardsForPlayer(player.id, totalDrawCount);
       if (drawResult.error) {
         return drawResult;
       }
+      // Refetch player to get updated hand after drawing
+      const updatedPlayer = await prisma.player.findUnique({
+        where: { id: player.id },
+      });
+      if (updatedPlayer) {
+        handCardIds = parseCardIdArray(updatedPlayer.hand);
+      }
+    } else if (totalDrawCount > 0 && hasSelectionEffects && pendingEffects.length > 0) {
+      // Add draw count to the first pending effect
+      pendingEffects[0].drawCount = totalDrawCount;
     }
 
-    const newMagicCardsPlayed = game.magicCardsPlayedThisTurn + 1;
-    // const updateData: any = {
-    //   magicCardsPlayedThisTurn: newMagicCardsPlayed,
-    // };
+    const updatedHand = handCardIds.filter((id) => id !== cardId);
+    const discardCardIds = parseCardIdArray(player.discardPile);
+    const updatedDiscardPile = [...discardCardIds, cardId];
 
-    // if (hasSummon) {
-    //   updateData.summonUsedThisTurn = true;
-    // }
+    const newMagicCardsPlayed = game.magicCardsPlayedThisTurn + 1;
 
     const updateData = {
       magicCardsPlayedThisTurn: newMagicCardsPlayed,
@@ -875,8 +986,19 @@ export async function playMagicOrInstantCard(
       }),
     ]);
 
-    // If 2 magic cards played, auto-advance to SCORING
-    if (newMagicCardsPlayed >= 2) {
+    // Never advance phase if there are pending effects or summon is available
+    // Player must resolve all pending effects and use summon before phase can advance
+    const summonAvailable = updateData.summonUsedThisTurn;
+    
+    if (pendingEffects.length > 0) {
+      return actionSuccess(pendingEffects);
+    }
+    
+    // Only auto-advance if:
+    // 1. 2 magic cards were played (or creature was played, handled elsewhere)
+    // 2. No pending effects requiring selection (already checked above)
+    // 3. No summon is available
+    if (newMagicCardsPlayed >= 2 && !summonAvailable) {
       const refetchResult = await refetchGameAndPlayer(gameId, player.id);
       if (refetchResult.error) {
         return refetchResult;
@@ -885,10 +1007,11 @@ export async function playMagicOrInstantCard(
       if (advanceResult.error) {
         return advanceResult;
       }
-      // Return pending effects even if phase advanced
-      return actionSuccess(pendingEffects);
+      // Return empty pending effects array when phase advances
+      return actionSuccess([]);
     }
 
+    // If summon is available, stay in ACTION phase
     return actionSuccess(pendingEffects);
   } catch (error) {
     console.error("[playMagicOrInstantCard] unexpected error", error);
@@ -897,6 +1020,83 @@ export async function playMagicOrInstantCard(
       ERROR_CODES.UNKNOWN_ERROR
     );
   }
+}
+
+/**
+ * Validation helper functions to check if effects can be resolved
+ */
+
+/**
+ * Check if destroy effect can be resolved (there are opponent creatures on field)
+ */
+async function canResolveDestroyEffect(
+  game: GameWithPlayers,
+  player: Player
+): Promise<boolean> {
+  const gridData = safeParseCardGrid(game.cardGrid);
+  if (!gridData || gridData.length === 0) {
+    return false;
+  }
+  
+  // Check if there are any opponent creatures
+  return gridData.some((entry) => entry.playerId !== player.id);
+}
+
+/**
+ * Check if repel effect can be resolved (there are any creatures on field)
+ */
+async function canResolveRepelEffect(game: GameWithPlayers): Promise<boolean> {
+  const gridData = safeParseCardGrid(game.cardGrid);
+  if (!gridData || gridData.length === 0) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Check if displace effect can be resolved (there are creatures AND valid empty positions)
+ */
+async function canResolveDisplaceEffect(game: GameWithPlayers): Promise<boolean> {
+  const gridData = safeParseCardGrid(game.cardGrid);
+  if (!gridData || gridData.length === 0) {
+    return false;
+  }
+  
+  // Convert to grid format to check for valid positions
+  const cardIdToCardMap = await createCardIdToCardMap(gridData);
+  const currentGrid = databaseFormatToGrid(gridData, cardIdToCardMap);
+  
+  // Check if there are any creatures
+  const hasCreatures = gridData.length > 0;
+  if (!hasCreatures) {
+    return false;
+  }
+  
+  // Check if there are valid empty positions
+  const validPositions = getValidPlacementPositions(currentGrid);
+  return validPositions.length > 0;
+}
+
+/**
+ * Check if swap effect can be resolved (there are at least 2 creatures on field)
+ */
+async function canResolveSwapEffect(game: GameWithPlayers): Promise<boolean> {
+  const gridData = safeParseCardGrid(game.cardGrid);
+  if (!gridData || gridData.length < 2) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Check if hypnotize effect can be resolved (there are any creatures on field)
+ */
+async function canResolveHypnotizeEffect(game: GameWithPlayers): Promise<boolean> {
+  const gridData = safeParseCardGrid(game.cardGrid);
+  if (!gridData || gridData.length === 0) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -1125,7 +1325,7 @@ export async function endTurn(gameId: number): Promise<ActionResult<void>> {
 /**
  * Helper function to draw N cards for a player
  */
-async function drawCardsForPlayer(
+export async function drawCardsForPlayer(
   playerId: number,
   count: number
 ): Promise<ActionResult<void>> {

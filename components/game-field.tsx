@@ -6,6 +6,7 @@ import { EmptyCardSpace } from "@/components/empty-card-space";
 import type { Card } from "@/lib/card-types";
 import {
   updateGridValidPositions,
+  getValidPlacementPositions,
   type GameGrid,
 } from "@/lib/game-field-utils";
 
@@ -104,14 +105,38 @@ export function GameField({
     }
     
     // Show positions if they have a card OR if they are valid for placement (only if creature card is selected and placement is allowed)
-    // Also show empty spaces if displace effect is active and source is selected
+    // Also show empty spaces if displace effect is active and source is selected (but only valid positions)
     const canPlaceCard = !isScoringPhase && !isAwakenPhase && canPlaceCreature && selectedCard !== null && selectedCard.type === "creature";
     const showEmptyForDisplace = pendingEffectType === "displace" && displaceSource;
+    
+    // If displacing, calculate valid positions after removing the source card
+    let validDisplacePositions: Array<{ row: number; col: number }> = [];
+    if (showEmptyForDisplace && displaceSource) {
+      // Create a temporary grid without the source card to calculate valid positions
+      const gridWithoutSource = updatedGrid.map((row, r) =>
+        row.map((cell, c) => {
+          if (r === displaceSource.row && c === displaceSource.col) {
+            return {
+              ...cell,
+              card: null,
+              playerId: null,
+              hypnotized: false,
+            };
+          }
+          return cell;
+        })
+      );
+      validDisplacePositions = getValidPlacementPositions(gridWithoutSource);
+    }
     
     for (let row = 0; row < 5; row++) {
       for (let col = 0; col < 5; col++) {
         const cell = updatedGrid[row][col];
-        if (cell.card !== null || (cell.isValid && canPlaceCard) || (showEmptyForDisplace && cell.card === null)) {
+        const isValidDisplaceTarget = showEmptyForDisplace && 
+          cell.card === null && 
+          validDisplacePositions.some(pos => pos.row === row && pos.col === col);
+        
+        if (cell.card !== null || (cell.isValid && canPlaceCard) || isValidDisplaceTarget) {
           positions.push({ row, col, cell });
         }
       }

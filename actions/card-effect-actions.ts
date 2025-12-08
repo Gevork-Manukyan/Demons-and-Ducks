@@ -12,6 +12,7 @@ import {
   databaseFormatToGrid,
   gridToDatabaseFormat,
   updateCardHypnotized,
+  getValidPlacementPositions,
 } from "@/lib/game-field-utils";
 import { createCardIdToCardMap } from "@/actions/game-actions";
 import { canPerformAction } from "@/lib/turn-validation";
@@ -25,7 +26,8 @@ export async function resolveDestroyEffect(
   gameId: number,
   effectCardId: number,
   targetRow: number,
-  targetCol: number
+  targetCol: number,
+  drawCount?: number
 ): Promise<ActionResult<void>> {
   try {
     const result = await getGameAndPlayer(
@@ -107,6 +109,15 @@ export async function resolveDestroyEffect(
       }),
     ]);
 
+    // Process deferred draw if any
+    if (drawCount && drawCount > 0) {
+      const { drawCardsForPlayer } = await import("@/actions/game-actions");
+      const drawResult = await drawCardsForPlayer(player.id, drawCount);
+      if (drawResult.error) {
+        return drawResult;
+      }
+    }
+
     return actionSuccess(undefined);
   } catch (error) {
     console.error("[resolveDestroyEffect] unexpected error", error);
@@ -124,7 +135,8 @@ export async function resolveRepelEffect(
   gameId: number,
   effectCardId: number,
   targetRow: number,
-  targetCol: number
+  targetCol: number,
+  drawCount?: number
 ): Promise<ActionResult<void>> {
   try {
     const result = await getGameAndPlayer(
@@ -195,6 +207,15 @@ export async function resolveRepelEffect(
       }),
     ]);
 
+    // Process deferred draw if any
+    if (drawCount && drawCount > 0) {
+      const { drawCardsForPlayer } = await import("@/actions/game-actions");
+      const drawResult = await drawCardsForPlayer(player.id, drawCount);
+      if (drawResult.error) {
+        return drawResult;
+      }
+    }
+
     return actionSuccess(undefined);
   } catch (error) {
     console.error("[resolveRepelEffect] unexpected error", error);
@@ -214,7 +235,8 @@ export async function resolveDisplaceEffect(
   sourceRow: number,
   sourceCol: number,
   targetRow: number,
-  targetCol: number
+  targetCol: number,
+  drawCount?: number
 ): Promise<ActionResult<void>> {
   try {
     const result = await getGameAndPlayer(
@@ -259,40 +281,69 @@ export async function resolveDisplaceEffect(
     const cardIdToCardMap = await createCardIdToCardMap(gridData);
     const currentGrid = databaseFormatToGrid(gridData, cardIdToCardMap);
 
-      // Validate source has a card
-      if (currentGrid[sourceRow][sourceCol].card === null) {
-        return actionError(
-          "No card at source position",
-          ERROR_CODES.NOT_FOUND
-        );
-      }
-
-      // Validate target is empty
-      if (currentGrid[targetRow][targetCol].card !== null) {
-        return actionError(
-          "Target position is not empty",
-          ERROR_CODES.VALIDATION_ERROR
-        );
-      }
-
-      // Get source card info
-      const sourceEntry = gridData.find(
-        (e) => e.row === sourceRow && e.col === sourceCol
+    // Validate source has a card
+    if (currentGrid[sourceRow][sourceCol].card === null) {
+      return actionError(
+        "No card at source position",
+        ERROR_CODES.NOT_FOUND
       );
-      if (!sourceEntry) {
-        return actionError("Source entry not found", ERROR_CODES.NOT_FOUND);
-      }
+    }
 
-      // Move card: remove from source, add to target
-      const updatedGridData = gridData
-        .filter((e) => !(e.row === sourceRow && e.col === sourceCol))
-        .concat({
-          cardId: sourceEntry.cardId,
-          row: targetRow,
-          col: targetCol,
-          hypnotized: sourceEntry.hypnotized,
-          playerId: sourceEntry.playerId,
-        });
+    // Validate target is empty
+    if (currentGrid[targetRow][targetCol].card !== null) {
+      return actionError(
+        "Target position is not empty",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    // Get source card info
+    const sourceEntry = gridData.find(
+      (e) => e.row === sourceRow && e.col === sourceCol
+    );
+    if (!sourceEntry) {
+      return actionError("Source entry not found", ERROR_CODES.NOT_FOUND);
+    }
+
+    // Remove source card temporarily to calculate valid positions
+    // This simulates the card being removed before placement
+    const gridWithoutSource = currentGrid.map((row, r) =>
+      row.map((cell, c) => {
+        if (r === sourceRow && c === sourceCol) {
+          return {
+            ...cell,
+            card: null,
+            playerId: null,
+            hypnotized: false,
+          };
+        }
+        return cell;
+      })
+    );
+
+    // Calculate valid positions after removing the source card
+    const validPositions = getValidPlacementPositions(gridWithoutSource);
+    const isValidTarget = validPositions.some(
+      (pos) => pos.row === targetRow && pos.col === targetCol
+    );
+
+    if (!isValidTarget) {
+      return actionError(
+        "Target position is not a valid placement position. Cards must be placed within a 3x3 grid area.",
+        ERROR_CODES.VALIDATION_ERROR
+      );
+    }
+
+    // Move card: remove from source, add to target
+    const updatedGridData = gridData
+      .filter((e) => !(e.row === sourceRow && e.col === sourceCol))
+      .concat({
+        cardId: sourceEntry.cardId,
+        row: targetRow,
+        col: targetCol,
+        hypnotized: sourceEntry.hypnotized,
+        playerId: sourceEntry.playerId,
+      });
 
     // Update game
     await prisma.game.update({
@@ -301,6 +352,15 @@ export async function resolveDisplaceEffect(
         cardGrid: updatedGridData,
       },
     });
+
+    // Process deferred draw if any
+    if (drawCount && drawCount > 0) {
+      const { drawCardsForPlayer } = await import("@/actions/game-actions");
+      const drawResult = await drawCardsForPlayer(player.id, drawCount);
+      if (drawResult.error) {
+        return drawResult;
+      }
+    }
 
     return actionSuccess(undefined);
   } catch (error) {
@@ -321,7 +381,8 @@ export async function resolveSwapEffect(
   pos1Row: number,
   pos1Col: number,
   pos2Row: number,
-  pos2Col: number
+  pos2Col: number,
+  drawCount?: number
 ): Promise<ActionResult<void>> {
   try {
     const result = await getGameAndPlayer(
@@ -400,6 +461,15 @@ export async function resolveSwapEffect(
       },
     });
 
+    // Process deferred draw if any
+    if (drawCount && drawCount > 0) {
+      const { drawCardsForPlayer } = await import("@/actions/game-actions");
+      const drawResult = await drawCardsForPlayer(player.id, drawCount);
+      if (drawResult.error) {
+        return drawResult;
+      }
+    }
+
     return actionSuccess(undefined);
   } catch (error) {
     console.error("[resolveSwapEffect] unexpected error", error);
@@ -417,7 +487,8 @@ export async function resolveHypnotizeEffect(
   gameId: number,
   effectCardId: number,
   targetRow: number,
-  targetCol: number
+  targetCol: number,
+  drawCount?: number
 ): Promise<ActionResult<void>> {
   try {
     const result = await getGameAndPlayer(
@@ -478,6 +549,15 @@ export async function resolveHypnotizeEffect(
         cardGrid: updatedGridData === null ? undefined : updatedGridData,
       },
     });
+
+    // Process deferred draw if any
+    if (drawCount && drawCount > 0) {
+      const { drawCardsForPlayer } = await import("@/actions/game-actions");
+      const drawResult = await drawCardsForPlayer(player.id, drawCount);
+      if (drawResult.error) {
+        return drawResult;
+      }
+    }
 
     return actionSuccess(undefined);
   } catch (error) {

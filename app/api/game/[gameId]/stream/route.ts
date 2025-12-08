@@ -76,6 +76,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         playerDeck: string;
         playerDiscardPile: string;
         playerCurrentPoints: number;
+        summonUsedThisTurn: boolean;
+        creatureCardPlayedThisTurn: boolean;
+        magicCardsPlayedThisTurn: number;
       } | null = null;
 
       const pollGameState = async () => {
@@ -111,6 +114,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             const currentPlayerDeck = currentPlayer ? JSON.stringify(currentPlayer.deck) : "";
             const currentPlayerDiscardPile = currentPlayer ? JSON.stringify(currentPlayer.discardPile) : "";
             const currentPlayerCurrentPoints = currentPlayer?.currentPoints ?? 0;
+            const currentSummonUsedThisTurn = data.summonUsedThisTurn ?? false;
+            const currentCreatureCardPlayedThisTurn = data.creatureCardPlayedThisTurn ?? false;
+            const currentMagicCardsPlayedThisTurn = data.magicCardsPlayedThisTurn ?? 0;
 
             // Check if anything changed
             let hasChanged = false;
@@ -128,7 +134,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 currentPlayerHand !== lastState.playerHand ||
                 currentPlayerDeck !== lastState.playerDeck ||
                 currentPlayerDiscardPile !== lastState.playerDiscardPile ||
-                currentPlayerCurrentPoints !== lastState.playerCurrentPoints
+                currentPlayerCurrentPoints !== lastState.playerCurrentPoints ||
+                currentSummonUsedThisTurn !== lastState.summonUsedThisTurn ||
+                currentCreatureCardPlayedThisTurn !== lastState.creatureCardPlayedThisTurn ||
+                currentMagicCardsPlayedThisTurn !== lastState.magicCardsPlayedThisTurn
               ) {
                 hasChanged = true;
               } else {
@@ -161,6 +170,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 playerDeck: currentPlayerDeck,
                 playerDiscardPile: currentPlayerDiscardPile,
                 playerCurrentPoints: currentPlayerCurrentPoints,
+                summonUsedThisTurn: currentSummonUsedThisTurn,
+                creatureCardPlayedThisTurn: currentCreatureCardPlayedThisTurn,
+                magicCardsPlayedThisTurn: currentMagicCardsPlayedThisTurn,
               };
             } else {
               // Send heartbeat to keep connection alive

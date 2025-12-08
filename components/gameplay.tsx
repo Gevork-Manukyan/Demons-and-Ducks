@@ -27,7 +27,6 @@ import {
   resolveSwapEffect,
   resolveHypnotizeEffect,
 } from "@/actions/card-effect-actions";
-import type { AbilityType } from "@/lib/card-types";
 import { isActionSuccess, isActionError, type ActionResult } from "@/lib/errors";
 import type { GameState } from "@/actions/game-actions";
 import type { Card as CardType } from "@/lib/card-types";

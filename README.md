@@ -23,7 +23,7 @@ flowchart LR
   end
 
   subgraph server [Next.js Server]
-    Pages[App routes (/lobby, /game/...)]
+    Pages["App routes (lobby and game)"]
     AuthRoute["/api/auth/[...nextauth]"]
     GameActions["Server actions (game-actions)"]
     GameStream["SSE /api/game/[gameId]/stream"]
